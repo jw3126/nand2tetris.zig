@@ -1,0 +1,3 @@
+[submodule "deps/mecha"]
+	path = deps/mecha
+	url = https://github.com/Hejsil/mecha.git
