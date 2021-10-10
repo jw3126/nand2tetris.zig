@@ -60,33 +60,71 @@ const def_label = m.combine(.{
     }
 );
 
-fn isSingleChar(x : u8) bool {
-    return switch(x) {
-        'A' => true,
-        'M' => true,
-        'D' => true,
-        ';' => true,
-        '=' => true,
-        '+' => true,
-        '-' => true,
-        else => false,
-    };
+fn singelechar_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(Token) {
+    if (str.len == 0) {
+        return m.Error.ParserFailed;
+    } else {
+        const c = str[0];
+        const token = switch(c) {
+            'A' => Token{.register  = Register.A},
+            'M' => Token{.register  = Register.M},
+            'D' => Token{.register  = Register.D},
+            ';' => Token{.semicolon = .{}},
+            '=' => Token{.eq        = .{}},
+            '+' => Token{.plus      = .{}},
+            '-' => Token{.minus     = .{}},
+            else => {return m.Error.ParserFailed;}
+        };
+        return m.Result(Token){.value=token, .rest=str[1..]};
+    }
 }
 
-fn mktok_singlechar(res : u8) Token {
-    return switch(res) {
-        'A' => .{.register  = Register.A},
-        'M' => .{.register  = Register.M},
-        'D' => .{.register  = Register.D},
-        ';' => .{.semicolon = .{}},
-        '=' => .{.eq        = .{}},
-        '+' => .{.plus      = .{}},
-        '-' => .{.minus     = .{}},
-        else => {unreachable;}
-    };
+fn jump(_: *std.mem.Allocator, str : []const u8) m.Error!m.Result(Token) {
+    if (std.mem.startsWith(u8, str, "J00")) {
+        const tok : Token  = Token{ .jump=Jump.J00};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JGT")) {
+        const tok : Token  = Token{ .jump=Jump.JGT};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JEQ")) {
+        const tok : Token  = Token{ .jump=Jump.JEQ};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JGE")) {
+        const tok : Token  = Token{ .jump=Jump.JGE};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JLT")) {
+        const tok : Token  = Token{ .jump=Jump.JLT};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JNE")) {
+        const tok : Token  = Token{ .jump=Jump.JNE};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JLE")) {
+        const tok : Token  = Token{ .jump=Jump.JLE};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else if (std.mem.startsWith(u8, str, "JMP")) {
+        const tok : Token  = Token{ .jump=Jump.JMP};
+        return m.Result(Token){.value=tok, .rest=str[3..]};
+    } else {
+        return m.Error.ParserFailed;
+    }
 }
-const singelechar_token : m.Parser(Token) = m.map(Token, mktok_singlechar,
-    m.ascii.wrap(isSingleChar));
+
+test "jump" {
+    const test_allocator = testing.allocator;
+    var res : Token = (try jump(test_allocator, "JMP")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.JMP});
+    res = (try jump(test_allocator, "J00")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.J00});
+    res = (try jump(test_allocator, "JGT")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.JGT});
+    res = (try jump(test_allocator, "JEQ")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.JEQ});
+    res = (try jump(test_allocator, "JGE")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.JGE});
+    res = (try jump(test_allocator, "JLT")).value;
+    try testing.expectEqual(res, Token{ .jump=Jump.JLT});
+    try expectError(jump(test_allocator, "?"), m.Error.ParserFailed);
+}
 
 test "singelechar_token" {
     const test_allocator = testing.allocator;
