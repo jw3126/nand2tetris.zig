@@ -1,9 +1,9 @@
 const std = @import("std");
 const m = @import("mecha");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var allocator : *std.mem.Allocator = &gpa.allocator;
 
 //const spaces_or_tabs = m.discard(
 //    m.many(
@@ -16,9 +16,7 @@ const spaces_or_tabs = m.discard(
 );
 
 fn mkComment(content : [] const u8) Token {
-    //std.debug.print("mkComment({x})\n", .{&content});
     const ret = Token{.comment=content};
-    //std.debug.print("ret.comment: {x}\n", .{&(ret.comment)});
     return ret;
 }
 const start_comment = m.string("//");
@@ -123,11 +121,9 @@ test "tokens" {
     const test_allocator = testing.allocator;
     const res1 = try tokens(test_allocator, "0;JMP");
     defer test_allocator.free(res1.value);
-    std.debug.print("{any}\n", .{res1.value});
 }
 
 fn char_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(Token) {
-    std.debug.print("~~{s}~~\n", .{str});
     if (str.len == 0) {
         return m.Error.ParserFailed;
     } else {
@@ -255,40 +251,37 @@ test "def_label" {
     try testing.expect(std.mem.eql(u8, res.value.def_label, "asdf"));
 }
 
+pub fn tokenizeFileAbsolute(alloc: *Allocator, path : [] const u8) anyerror!std.ArrayList(Token) {
+    const file = try std.fs.openFileAbsolute(path, .{.read=true});
+    defer file.close();
+    const reader = std.io.bufferedReader(file.reader()).reader();
+    var ret = std.ArrayList(Token).init(alloc);
+    var buf : [1024]u8 = undefined;
+    while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        //std.debug.print("//// Start Parsing: ~~{s}~~\n", .{line});
+        var toks = (try tokens(alloc, line)).value;
+        defer alloc.free(toks);
+        //std.debug.print("//// Stop Parsing: ~~{s}~~\n", .{line});
+        try ret.appendSlice(toks);
+    }
+    return ret;
+}
+
 pub fn main() anyerror!void {
     defer {
         const leaked = gpa.deinit();
         if (leaked) std.testing.expect(false) catch @panic("Memory problem");
     }
+
+    const allocator : *Allocator = &gpa.allocator;
     const stdout = std.io.getStdOut().writer();
     const path = "/home/jan/nand2tetris/examples/add.asm";
-    const file = try std.fs.openFileAbsolute(path, .{.read=true});
-    defer file.close();
-    const reader = std.io.bufferedReader(file.reader()).reader();
-    var buf : [1024]u8 = undefined;
-    while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
-        try stdout.print("//// Start Parsing: ~~{s}~~\n", .{line});
-        var toks = (try tokens(allocator, line)).value;
-        try stdout.print("//// Stop Parsing: ~~{s}~~\n", .{line});
-        defer {
-            for (toks) |tok| {
-                freeToken(allocator, tok);
-            }
-            allocator.free(toks);
-        }
-        for (toks) |tok| {
-            try printToken(stdout, tok);
-        }
-        try stdout.print("\n", .{});
-        //var res = (try token(allocator, line));
-        //var tok = res.value;
-        // defer {
-        //     freeToken(allocator, tok);
-        // }
-        // _ = tok;
-        // try printToken(stdout, tok);
-        // try stdout.print("\n", .{});
+    const toks = try tokenizeFileAbsolute(allocator, path);
+    defer freeTokens(allocator, toks);
+    for (toks.items) |tok| {
+        try printToken(stdout, tok);
     }
+    try stdout.print("\n", .{});
 }
 
 
@@ -303,12 +296,10 @@ test "comment" {
     const test_allocator = testing.allocator;
     const res = try comment(test_allocator, "//lala\n\n");
     defer test_allocator.free(res.value.comment);
-    //std.debug.print("test: {x}\n", .{&(res.value.comment)});
     try testing.expect(std.mem.eql(u8, res.value.comment, "lala"));
 
     const res2 = try comment(test_allocator, "//lala2");
     defer test_allocator.free(res2.value.comment);
-    //std.debug.print("test: {x}\n", .{&(res.value.comment)});
     try testing.expect(std.mem.eql(u8, res2.value.comment, "lala2"));
 }
 
@@ -381,6 +372,13 @@ fn freeToken(alloc : *std.mem.Allocator, tok : Token) void {
         //Token.def_label =>  |s| alloc.free(s),
         else => {},
     }
+}
+
+fn freeTokens(alloc: *Allocator, toks : std.ArrayList(Token)) void {
+    for (toks.items) |tok| {
+        freeToken(alloc, tok);
+    }
+    toks.deinit();
 }
 
 fn printRegister(writer : anytype, register : Register) anyerror!void {
