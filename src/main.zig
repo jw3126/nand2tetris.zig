@@ -5,10 +5,14 @@ const testing = std.testing;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var allocator : *std.mem.Allocator = &gpa.allocator;
 
+//const spaces_or_tabs = m.discard(
+//    m.many(
+//        m.ascii.char(' '), .{.collect=false}
+//    )
+//);
+
 const spaces_or_tabs = m.discard(
-    m.many(
-        m.ascii.char(' '), .{.collect=false}
-    )
+    m.many(m.ascii.space, .{.collect=false})
 );
 
 fn mkComment(content : [] const u8) Token {
@@ -19,7 +23,7 @@ fn mkComment(content : [] const u8) Token {
 }
 const start_comment = m.string("//");
 const stop_comment = m.oneOf(.{m.ascii.char('\n'), m.eos});
-const body_comment = m.many(m.ascii.not(stop_comment), .{});
+const body_comment = m.many(m.ascii.not(stop_comment), .{.collect=true});
 const comment : m.Parser(Token) = m.map(Token,
     mkComment,
     m.combine(
@@ -101,13 +105,29 @@ const token : m.Parser(Token) = m.combine(.{spaces_or_tabs,
         set_addr_name,
         def_label,
         jump,
-        singelechar_token,
-    })
+        char_token,
+    }),
 });
 
-const tokens = m.many(token, .{});
+test "token" {
+    const test_allocator = testing.allocator;
+    const res1 = try token(test_allocator, "0;JMP");
+    try testing.expectEqual(res1.value, Token{.zero=.{}});
+    const res2 = try token(test_allocator, "@R0");
+    try testing.expect(std.mem.eql(u8, res2.value.A_name, "R0"));
+}
 
-fn singelechar_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(Token) {
+const tokens = m.many(token, .{.collect=true});
+
+test "tokens" {
+    const test_allocator = testing.allocator;
+    const res1 = try tokens(test_allocator, "0;JMP");
+    defer test_allocator.free(res1.value);
+    std.debug.print("{any}\n", .{res1.value});
+}
+
+fn char_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(Token) {
+    std.debug.print("~~{s}~~\n", .{str});
     if (str.len == 0) {
         return m.Error.ParserFailed;
     } else {
@@ -120,6 +140,8 @@ fn singelechar_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(To
             '=' => Token{.eq        = .{}},
             '+' => Token{.plus      = .{}},
             '-' => Token{.minus     = .{}},
+            '0' => Token{.zero      = .{}},
+            '1' => Token{.one      = .{}},
             else => {return m.Error.ParserFailed;}
         };
         return m.Result(Token){.value=tok, .rest=str[1..]};
@@ -173,14 +195,14 @@ test "jump" {
     try expectError(jump(test_allocator, "?"), m.Error.ParserFailed);
 }
 
-test "singelechar_token" {
+test "char_token" {
     const test_allocator = testing.allocator;
-    var res : Token = (try singelechar_token(test_allocator, "M")).value;
+    var res : Token = (try char_token(test_allocator, "M")).value;
     try testing.expectEqual(res, Token{.register=Register.M});
-    res = (try singelechar_token(test_allocator, ";")).value;
+    res = (try char_token(test_allocator, ";")).value;
     try testing.expectEqual(res, Token{.semicolon=.{}});
-    try expectError(singelechar_token(test_allocator, "?"), m.Error.ParserFailed);
-    try expectError(singelechar_token(test_allocator, "m"), m.Error.ParserFailed);
+    try expectError(char_token(test_allocator, "?"), m.Error.ParserFailed);
+    try expectError(char_token(test_allocator, "m"), m.Error.ParserFailed);
 }
 
 test "set_addr" {
@@ -245,17 +267,19 @@ pub fn main() anyerror!void {
     const reader = std.io.bufferedReader(file.reader()).reader();
     var buf : [1024]u8 = undefined;
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
-        try stdout.print("//// Parsing: {s}\n", .{line});
+        try stdout.print("//// Start Parsing: ~~{s}~~\n", .{line});
         var toks = (try tokens(allocator, line)).value;
+        try stdout.print("//// Stop Parsing: ~~{s}~~\n", .{line});
         defer {
             for (toks) |tok| {
                 freeToken(allocator, tok);
             }
+            allocator.free(toks);
         }
         for (toks) |tok| {
             try printToken(stdout, tok);
-            try stdout.print(" ", .{});
         }
+        try stdout.print("\n", .{});
         //var res = (try token(allocator, line));
         //var tok = res.value;
         // defer {
@@ -346,13 +370,15 @@ const Token = union(enum) {
     eq        : void,
     plus      : void,
     minus     : void,
+    zero      : void,
+    one       : void,
 };
 
 fn freeToken(alloc : *std.mem.Allocator, tok : Token) void {
     switch(tok) {
         Token.comment   =>  |s| alloc.free(s),
-        Token.A_name    =>  |s| alloc.free(s),
-        Token.def_label =>  |s| alloc.free(s),
+        //Token.A_name    =>  |s| alloc.free(s),
+        //Token.def_label =>  |s| alloc.free(s),
         else => {},
     }
 }
@@ -378,6 +404,8 @@ fn printToken(writer : anytype, tok : Token) anyerror!void {
         Token.eq    => writer.print("=", .{}),
         Token.plus    => writer.print("+", .{}),
         Token.minus    => writer.print("-", .{}),
+        Token.zero    => writer.print("0", .{}),
+        Token.one    => writer.print("1", .{}),
     };
 }
 
