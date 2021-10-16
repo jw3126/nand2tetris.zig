@@ -394,24 +394,49 @@ pub const Instr = union(enum) {
     def_label : []const u8,
 };
 
-pub fn instructionsFromTokens(out : *ArrayList(Instr), toks : []Token) anyerror!void {
-    const ntoks : usize = toks.len;
-    _ = out;
-    var itok : usize = 0;
-    if (itok >= ntoks) return;
-    while (itok < ntoks) {
-        var tok : Token = toks[itok];
-        itok+=1;
-        var instr : Instr = switch(tok) {
-            Token.comment => |com|  Instr{.comment=com},
-            Token.A_addr  => |addr| Instr{.A_addr=addr},
-            Token.A_name  => |name| Instr{.A_name=name},
-            Token.def_label  => |labl| Instr{.def_label=labl},
-            else => unreachable,
-        };
-        try out.append(instr);
+const Error = error {
+    UnexpectedToken,
+    UnexpectedEndOfTokens,
+    ExpectedSemicolon,
+    ExpectedJump,
+};
+
+const TokenStream = struct {
+    items : []Token,
+    position : usize = 0,
+    fn advance(self : *TokenStream) Error!Token {
+        const pos = self.position;
+        if (pos >= self.items.len) {
+            return Error.UnexpectedEndOfTokens;
+        } else {
+            self.position = pos+1;
+            return self.items[pos];
+        }
     }
-    return;
+
+    fn hasTokensLeft(self : *TokenStream) bool {
+        return (self.position < self.items.len);
+    }
+
+
+    pub fn appendInstructions(self : *TokenStream, out : *ArrayList(Instr)) anyerror!void {
+        while (self.hasTokensLeft()) {
+            var tok : Token = try self.advance();
+            var instr : Instr = switch(tok) {
+                Token.comment    => |com | Instr{.comment=com},
+                Token.A_addr     => |addr| Instr{.A_addr=addr},
+                Token.A_name     => |name| Instr{.A_name=name},
+                Token.def_label  => |labl| Instr{.def_label=labl},
+                else => {return Error.UnexpectedToken;},
+            };
+            try out.append(instr);
+        }
+        return;
+    }
+};
+
+pub fn instructionsFromTokens(out : *ArrayList(Instr), toks : *TokenStream) anyerror!void {
+    try toks.appendInstructions(out);
 }
 
 test "instructionsFromTokens" {
@@ -420,9 +445,9 @@ test "instructionsFromTokens" {
     defer out.deinit();
     var tok = Token{.comment="hello"};
     var toks_array = [_]Token {tok}; // an array. Arrays have static size. [_] means size inference
-    var toks : []Token = &toks_array; // a slice. Slices have dynamic size.
+    var toks : TokenStream = .{.items=&toks_array};
 
-    try instructionsFromTokens(&out, toks);
+    try instructionsFromTokens(&out, &toks);
     std.debug.print("{any}", .{out.items});
     try testing.expectEqual(out.items.len, 1);
     var instr = out.items[0];
@@ -434,14 +459,13 @@ test "instructionsFromTokens" {
         Token{.def_label="mylabel"},
         Token{.A_addr=1337},
     };
-    toks = &toks_array2;
+    toks = TokenStream{.items=&toks_array2};
     try out.resize(0);
-    try instructionsFromTokens(&out, toks);
-    std.debug.print("{any}", .{out.items});
+    try instructionsFromTokens(&out, &toks);
     try testing.expectEqual(out.items.len, 4);
-    try testing.expect(std.mem.eql(u8, out.items[0].comment, toks[0].comment));
-    try testing.expect(std.mem.eql(u8, out.items[1].A_name, toks[1].A_name));
-    try testing.expect(std.mem.eql(u8, out.items[2].def_label, toks[2].def_label));
-    try testing.expectEqual(out.items[3].A_addr, toks[3].A_addr);
+    try testing.expect(std.mem.eql(u8, out.items[0].comment,  toks_array2[0].comment));
+    try testing.expect(std.mem.eql(u8, out.items[1].A_name,   toks_array2[1].A_name));
+    try testing.expect(std.mem.eql(u8, out.items[2].def_label,toks_array2[2].def_label));
+    try testing.expectEqual(out.items[3].A_addr,              toks_array2[3].A_addr);
 
 }
