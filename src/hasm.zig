@@ -418,17 +418,28 @@ const TokenStream = struct {
         return (self.position < self.items.len);
     }
 
+    fn parseInstr(self : *TokenStream) anyerror!Instr {
+        var tok : Token = try self.advance();
+        var instr : Instr = switch(tok) {
+            Token.comment    => |com | Instr{.comment=com},
+            Token.A_addr     => |addr| Instr{.A_addr=addr},
+            Token.A_name     => |name| Instr{.A_name=name},
+            Token.def_label  => |labl| Instr{.def_label=labl},
+            //Token.semicolon  => {return Error.UnexpectedToken;},
+            //Token.jump       => {return Error.UnexpectedToken;},
+            //Token.eq         => {return Error.UnexpectedToken;},
+            //Token.plus       => {return Error.UnexpectedToken;},
+            //Token.minus      => {return Error.UnexpectedToken;},
+            //Token.zero       =>
+            //Token.one        =>
+            else => {unreachable;},
+        };
+        return instr;
+    }
 
     pub fn appendInstructions(self : *TokenStream, out : *ArrayList(Instr)) anyerror!void {
         while (self.hasTokensLeft()) {
-            var tok : Token = try self.advance();
-            var instr : Instr = switch(tok) {
-                Token.comment    => |com | Instr{.comment=com},
-                Token.A_addr     => |addr| Instr{.A_addr=addr},
-                Token.A_name     => |name| Instr{.A_name=name},
-                Token.def_label  => |labl| Instr{.def_label=labl},
-                else => {return Error.UnexpectedToken;},
-            };
+            const instr : Instr = try self.parseInstr();
             try out.append(instr);
         }
         return;
