@@ -27,7 +27,7 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&run_cmd.step);
 
     const test_step = b.step("test", "Run the tests");
-    const tests = b.addTest("src/main.zig");
+    const tests = b.addTest("src/hasm.zig");
     tests.addPackagePath("mecha", "deps/mecha/mecha.zig");
     tests.setTarget(target);
     tests.setBuildMode(mode);
