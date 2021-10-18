@@ -342,6 +342,60 @@ pub const Token = union(enum) {
     one       : void,
 };
 
+pub fn tokenEqual(t1 : Token, t2 : Token) bool {
+    const ret = switch(t1) {
+        Token.comment => |str1| switch(t2) {
+            Token.comment => |str2| std.mem.eql(u8, str1, str2),
+            else => false,
+        },
+        Token.A_addr => |x1| switch(t2) {
+            Token.A_addr => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.A_name => |str1| switch(t2) {
+            Token.A_name => |str2| std.mem.eql(u8, str1, str2),
+            else => false,
+        },
+        Token.def_label => |str1| switch(t2) {
+            Token.def_label => |str2| std.mem.eql(u8, str1, str2),
+            else => false,
+        },
+        Token.register => |x1| switch(t2) {
+            Token.register => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.semicolon => |x1| switch(t2) {
+            Token.semicolon => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.jump => |x1| switch(t2) {
+            Token.jump => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.eq => |x1| switch(t2) {
+            Token.eq => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.plus => |x1| switch(t2) {
+            Token.plus => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.minus => |x1| switch(t2) {
+            Token.minus => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.zero => |x1| switch(t2) {
+            Token.zero => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.one => |x1| switch(t2) {
+            Token.one => |x2| (x1 == x2),
+            else => false,
+        },
+    };
+    return ret;
+}
+
 pub fn freeToken(alloc : *std.mem.Allocator, tok : Token) void {
     switch(tok) {
         Token.comment   =>  |s| alloc.free(s),
@@ -401,6 +455,20 @@ const Error = error {
     ExpectedJump,
 };
 
+fn checkTokenExpectedGot(expected : Token, got : Token) Error!void {
+    if (tokenEqual(expected, got)) {
+        return void{};
+    } else {
+        std.debug.print("Expected token {any} got token {any}", .{expected, got});
+        return Error.UnexpectedToken;
+    }
+}
+
+fn unexpectedToken(tok : Token, msg : []const u8) Error {
+    std.debug.print("Got unexpected token {any}\n {s}", .{tok, msg});
+    return Error.UnexpectedToken;
+}
+
 const TokenStream = struct {
     items : []Token,
     position : usize = 0,
@@ -410,12 +478,79 @@ const TokenStream = struct {
             return Error.UnexpectedEndOfTokens;
         } else {
             self.position = pos+1;
-            return self.items[pos];
+            const tok = self.items[pos];
+            std.debug.print("{any}", .{tok});
+            return tok;
+        }
+    }
+
+    fn advanceSkipComments(self : *TokenStream) Error!Token {
+        while (true) {
+            var tok = try self.advance();
+            switch(tok) {
+                Token.comment => {continue;},
+                else => {return tok;},
+            }
         }
     }
 
     fn hasTokensLeft(self : *TokenStream) bool {
         return (self.position < self.items.len);
+    }
+
+    fn parseComp(self : *TokenStream) anyerror!Comp {
+        const tok = try self.advance();
+        const comp : Comp = switch(tok) {
+            Token.zero => Comp.zero,
+            Token.one  => Comp.one,
+            else => {unreachable;},
+        };
+        return comp;
+    }
+
+    fn parseJump(self : *TokenStream) anyerror!Jump {
+        if (!self.hasTokensLeft()) {
+            return Jump.J00;
+        }
+        var tok = try self.advanceSkipComments();
+        try checkTokenExpectedGot(Token{.semicolon=.{}}, tok);
+        if (!self.hasTokensLeft()) {
+            return Jump.J00;
+        }
+        tok = try self.advanceSkipComments();
+        switch(tok) {
+            Token.jump => |jmp|{return jmp;},
+            else => {return unexpectedToken(tok, "Expected jump");},
+        }
+    }
+
+    fn parseCInstr(self : *TokenStream) anyerror!Instr {
+        var tok : Token = try self.advance();
+        // dest
+        var destA = false;
+        var destD = false;
+        var destM = false;
+        switch(tok) {
+            Token.register   => |reg| {
+                switch(reg) {
+                    Register.A   => {
+                        destA = true;
+                    },
+                    Register.D   => {
+                        destD = true;
+                    },
+                    Register.M   => {
+                        destM = true;
+                    },
+                }
+                const tok_eq = try self.advance();
+                try checkTokenExpectedGot(Token{.eq=.{}}, tok_eq);
+            },
+            else => {},
+        }
+        const comp : Comp = try self.parseComp();
+        const jmp : Jump = try self.parseJump();
+        return Instr{.C=.{.destA=destA, .destD=destD, .destM=destM, .comp=comp, .jump=jmp}};
     }
 
     fn parseInstr(self : *TokenStream) anyerror!Instr {
@@ -425,6 +560,10 @@ const TokenStream = struct {
             Token.A_addr     => |addr| Instr{.A_addr=addr},
             Token.A_name     => |name| Instr{.A_name=name},
             Token.def_label  => |labl| Instr{.def_label=labl},
+            else => {
+                self.position -= 1;
+                return self.parseCInstr();
+            },
             //Token.semicolon  => {return Error.UnexpectedToken;},
             //Token.jump       => {return Error.UnexpectedToken;},
             //Token.eq         => {return Error.UnexpectedToken;},
@@ -432,7 +571,6 @@ const TokenStream = struct {
             //Token.minus      => {return Error.UnexpectedToken;},
             //Token.zero       =>
             //Token.one        =>
-            else => {unreachable;},
         };
         return instr;
     }
@@ -479,4 +617,16 @@ test "instructionsFromTokens" {
     try testing.expect(std.mem.eql(u8, out.items[2].def_label,toks_array2[2].def_label));
     try testing.expectEqual(out.items[3].A_addr,              toks_array2[3].A_addr);
 
+    var toks_array3 = [_]Token {
+        Token{.register=Register.A},
+        Token{.eq=.{}},
+        Token{.zero=.{}},
+        Token{.semicolon=.{}},
+        Token{.jump=Jump.JMP},
+    };
+    toks = TokenStream{.items=&toks_array3};
+    try out.resize(0);
+    try instructionsFromTokens(&out, &toks);
+    try testing.expectEqual(out.items[0], Instr{.C=.{.destA=true, .destD=false, .destM=false,
+        .comp=Comp.zero, .jump=Jump.JMP}});
 }
