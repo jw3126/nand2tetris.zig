@@ -137,8 +137,11 @@ fn char_token(_: *std.mem.Allocator, str :[]const u8) m.Error!m.Result(Token) {
             '=' => Token{.eq        = .{}},
             '+' => Token{.plus      = .{}},
             '-' => Token{.minus     = .{}},
+            '&' => Token{.and_      = .{}},
+            '|' => Token{.or_       = .{}},
+            '!' => Token{.not       = .{}},
             '0' => Token{.zero      = .{}},
-            '1' => Token{.one      = .{}},
+            '1' => Token{.one       = .{}},
             else => {return m.Error.ParserFailed;}
         };
         return m.Result(Token){.value=tok, .rest=str[1..]};
@@ -261,7 +264,6 @@ pub fn tokenizeFileAbsolute(alloc: *Allocator, path : [] const u8) anyerror!Arra
 }
 
 
-
 fn expectError(res : anytype, err_expected : anyerror) anyerror!void {
     if (res) |value| {_=value;unreachable;} else |err| {
         try std.testing.expect(err == err_expected);
@@ -315,7 +317,7 @@ const Comp = union(enum) {
     inc  : Register,
     dec  : Register,
 
-    DpulsA,
+    DplusA,
     DminusA,
     AminusD,
     DandA,
@@ -326,6 +328,64 @@ const Comp = union(enum) {
     DandM,
     DorM,
 };
+
+fn printComp(writer : anytype, comp : Comp) anyerror!void {
+    switch(comp) {
+        Comp.zero    => writer.print("0", .{}),
+        Comp.one     => writer.print("1", .{}),
+        Comp.neg_one => writer.print("-1", .{}),
+        Comp.not     => |reg| {writer.print("!", .{}); try printRegister(writer, reg);},
+        Comp.neg     => |reg| {writer.print("-", .{}); try printRegister(writer, reg);},
+        Comp.copy    => |reg| {try printRegister(writer, reg);},
+        Comp.inc     => |reg| {try printRegister(writer, reg); writer.print("+1", .{});},
+        Comp.dec     => |reg| {try printRegister(writer, reg); writer.print("-1", .{});},
+        Comp.DplusA  => writer.print("D+A", .{}),
+        Comp.DminusA => writer.print("D-A", .{}),
+        Comp.AminusD => writer.print("A-D", .{}),
+        Comp.DandA   => writer.print("D&A", .{}),
+        Comp.DorA    => writer.print("D|A", .{}),
+        Comp.DplusM  => writer.print("D+M", .{}),
+        Comp.DminusM => writer.print("D-M", .{}),
+        Comp.MminusD => writer.print("M-D", .{}),
+        Comp.DandM   => writer.print("D&M", .{}),
+        Comp.DorM    => writer.print("D|M", .{}),
+    }
+
+}
+
+fn binaryOp(reg1: Register, op : Token, reg2 : Register) anyerror!Comp {
+    const plus  = Token.plus;
+    const minus = Token.minus;
+    const and_  = Token.and_;
+    const or_   = Token.or_;
+    const A = Register.A;
+    const D = Register.D;
+    const M = Register.M;
+    if (reg1 == D and op == plus and reg2 == A) {
+        return Comp.DplusA;
+    } else if (reg1 == D and op == minus and reg2 == A) {
+        return Comp.DminusA;
+    } else if (reg1 == A and op == minus and reg2 == D) {
+        return Comp.AminusD;
+    } else if (reg1 == D and op == and_ and reg2 == A) {
+        return Comp.DandA;
+    } else if (reg1 == D and op == or_ and reg2 == A) {
+        return Comp.DorA;
+    } else if (reg1 == D and op == plus and reg2 == M) {
+        return Comp.DplusM;
+    } else if (reg1 == D and op == minus and reg2 == M) {
+        return Comp.DminusM;
+    } else if (reg1 == M and op == minus and reg2 == D) {
+        return Comp.MminusD;
+    } else if (reg1 == D and op == and_ and reg2 == M) {
+        return Comp.DandM;
+    } else if (reg1 == D and op == or_ and reg2 == M) {
+        return Comp.DorM;
+    } else {
+        std.debug.print("reg1 = {any} op = {any} reg2 = {any}", .{reg1, op, reg2});
+        return unexpectedToken;
+    }
+}
 
 pub const Token = union(enum) {
     comment   : []const u8,
@@ -338,8 +398,11 @@ pub const Token = union(enum) {
     eq        : void,
     plus      : void,
     minus     : void,
+    and_      : void,
+    or_       : void,
     zero      : void,
     one       : void,
+    not       : void,
 };
 
 pub fn tokenEqual(t1 : Token, t2 : Token) bool {
@@ -392,6 +455,18 @@ pub fn tokenEqual(t1 : Token, t2 : Token) bool {
             Token.one => |x2| (x1 == x2),
             else => false,
         },
+        Token.not => |x1| switch(t2) {
+            Token.not => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.and_ => |x1| switch(t2) {
+            Token.and_ => |x2| (x1 == x2),
+            else => false,
+        },
+        Token.or_ => |x1| switch(t2) {
+            Token.or_ => |x2| (x1 == x2),
+            else => false,
+        },
     };
     return ret;
 }
@@ -423,18 +498,21 @@ fn printRegister(writer : anytype, register : Register) anyerror!void {
 
 pub fn printToken(writer : anytype, tok : Token) anyerror!void {
     try switch(tok) {
-        Token.comment => |com| writer.print("//{s}", .{com}),
-        Token.A_addr => |addr| writer.print("@{d}", .{addr}),
-        Token.A_name => |name| writer.print("@{s}", .{name}),
+        Token.comment   => |com| writer.print("//{s}", .{com}),
+        Token.A_addr    => |addr| writer.print("@{d}", .{addr}),
+        Token.A_name    => |name| writer.print("@{s}", .{name}),
         Token.def_label => |name| writer.print("({s}):", .{name}),
-        Token.register => |register| printRegister(writer, register),
+        Token.register  => |register| printRegister(writer, register),
         Token.semicolon => writer.print(";", .{}),
-        Token.jump     => |jmp| printJump(writer, jmp),
-        Token.eq    => writer.print("=", .{}),
-        Token.plus    => writer.print("+", .{}),
-        Token.minus    => writer.print("-", .{}),
-        Token.zero    => writer.print("0", .{}),
-        Token.one    => writer.print("1", .{}),
+        Token.jump      => |jmp| printJump(writer, jmp),
+        Token.eq        => writer.print("=", .{}),
+        Token.plus      => writer.print("+", .{}),
+        Token.minus     => writer.print("-", .{}),
+        Token.and_      => writer.print("&", .{}),
+        Token.or_       => writer.print("|", .{}),
+        Token.not       => writer.print("!", .{}),
+        Token.zero      => writer.print("0", .{}),
+        Token.one       => writer.print("1", .{}),
     };
 }
 
@@ -447,6 +525,54 @@ pub const Instr = union(enum) {
     C         : struct {destA : bool, destD :bool, destM :bool, comp : Comp, jump : Jump},
     def_label : []const u8,
 };
+
+pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
+    try switch(instr) {
+        Instr.comment   => |com | writer.print("//{s}", .{com}),
+        Instr.A_addr    => |addr| writer.print("@{d}", .{addr}),
+        Instr.A_name    => |name| writer.print("@{s}", .{name}),
+        Instr.def_label => |name| writer.print("({s}):", .{name}),
+        Instr.C         => |spec| {
+            if (spec.destA) writer.print("A=", .{});
+            if (spec.destD) writer.print("D=", .{});
+            if (spec.destM) writer.print("M=", .{});
+            try printComp(writer, spec.comp);
+            writer.print(";");
+            try printJump(writer, spec.jump);
+        },
+    };
+}
+
+pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayList(Instr) {
+    const file = try std.fs.openFileAbsolute(path, .{.read=true});
+    defer file.close();
+    const reader = std.io.bufferedReader(file.reader()).reader();
+    var buf : [1024]u8 = undefined;
+    var linenum : u64 = 0;
+    var ret = ArrayList(Instr).init(alloc);
+    while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        linenum += 1;
+        var res_toks = (tokens(alloc, line)) catch |err| {
+            std.debug.print("Error tokenizing line\n {d} : {s}\n", .{linenum, line});
+            return err;
+        };
+        var toks = res_toks.value;
+        defer alloc.free(toks);
+        var stream = TokenStream{.items=toks};
+        stream.appendInstructions(&ret) catch |err| {
+            std.debug.print("Error parsing line {d}:\n {s}\n", .{linenum, line});
+            std.debug.print("Tokens:\n", .{});
+            const stdout = std.io.getStdOut().writer();
+            for (stream.items) |tok| {
+                try printToken(stdout,tok);
+            }
+            std.debug.print("\n", .{});
+            return err;
+        };
+        //std.debug.print("//// Stop Parsing: ~~{s}~~\n", .{line});
+    }
+    return ret;
+}
 
 const Error = error {
     UnexpectedToken,
@@ -469,7 +595,7 @@ fn unexpectedToken(tok : Token, msg : []const u8) Error {
     return Error.UnexpectedToken;
 }
 
-const TokenStream = struct {
+pub const TokenStream = struct {
     items : []Token,
     position : usize = 0,
     fn advance(self : *TokenStream) Error!Token {
@@ -479,7 +605,7 @@ const TokenStream = struct {
         } else {
             self.position = pos+1;
             const tok = self.items[pos];
-            std.debug.print("{any}", .{tok});
+            //std.debug.print("{any}", .{tok});
             return tok;
         }
     }
@@ -498,12 +624,77 @@ const TokenStream = struct {
         return (self.position < self.items.len);
     }
 
+    const Op = enum{plus, minus, and_, or_};
     fn parseComp(self : *TokenStream) anyerror!Comp {
         const tok = try self.advance();
         const comp : Comp = switch(tok) {
             Token.zero => Comp.zero,
             Token.one  => Comp.one,
-            else => {unreachable;},
+            Token.minus => {
+                const tok2 = try self.advance();
+                switch(tok2) {
+                    Token.register => |reg| {return Comp{.neg=reg};},
+                    Token.one => {return Comp{.neg_one=.{}};},
+                    else => {return unexpectedToken(tok, "expected register");},
+                }
+            },
+            Token.not => {
+                const tok2 = try self.advance();
+                switch(tok2) {
+                    Token.register => |reg| {return Comp{.not=reg};},
+                    else => {return unexpectedToken(tok, "expected register");},
+                }
+            },
+            Token.register => |reg| {
+                if (!self.hasTokensLeft()) {
+                    return Comp{.copy=reg};
+                }
+                const reg1 = reg;
+                const tok_op = try self.advance();
+                const op : Op =  switch(tok_op) {
+                    Token.comment => {
+                        return Comp{.copy=reg};
+                    },
+                    Token.semicolon => {
+                        self.position -= 1;
+                        return Comp{.copy=reg};
+                    },
+                    Token.plus  => Op.plus,
+                    Token.minus => Op.minus,
+                    Token.and_  => Op.and_,
+                    Token.or_   => Op.or_,
+                    else        => {
+                        return unexpectedToken(tok_op, "expected operation");
+                    }
+                };
+                const tok_arg2 = try self.advance();
+                const reg2 : Register = switch(tok_arg2) {
+                    Token.register => |r| r,
+                    Token.one      => switch(op) {
+                        Op.plus => return Comp{.inc=reg1},
+                        Op.minus => return Comp{.dec=reg1},
+                        else => {return unexpectedToken(tok_arg2, "expected + 1 or - 1 or register");},
+                    },
+                    else => {return unexpectedToken(tok_arg2, "expected register or 1");},
+                };
+                const D = Register.D;
+                const A = Register.A;
+                const M = Register.M;
+                if      (reg1 == D and op == Op.plus  and reg2 == A) {return Comp.DplusA ;}
+                else if (reg1 == D and op == Op.minus and reg2 == A) {return Comp.DminusA;}
+                else if (reg1 == A and op == Op.minus and reg2 == D) {return Comp.AminusD;}
+                else if (reg1 == D and op == Op.and_  and reg2 == A) {return Comp.DandA  ;}
+                else if (reg1 == D and op == Op.or_   and reg2 == A) {return Comp.DorA   ;}
+                else if (reg1 == D and op == Op.plus  and reg2 == M) {return Comp.DplusM ;}
+                else if (reg1 == D and op == Op.minus and reg2 == M) {return Comp.DminusM;}
+                else if (reg1 == M and op == Op.minus and reg2 == D) {return Comp.MminusD;}
+                else if (reg1 == D and op == Op.and_  and reg2 == M) {return Comp.DandM  ;}
+                else if (reg1 == D and op == Op.or_   and reg2 == M) {return Comp.DorM   ;}
+                else {
+                    return unexpectedToken(tok_arg2, "illegal second argument for this operation");
+                }
+            },
+            else => {return unexpectedToken(tok, "expected comp");},
         };
         return comp;
     }
@@ -531,6 +722,7 @@ const TokenStream = struct {
         var destD = false;
         var destM = false;
         switch(tok) {
+            // e.g. A = ...
             Token.register   => |reg| {
                 switch(reg) {
                     Register.A   => {
@@ -546,7 +738,10 @@ const TokenStream = struct {
                 const tok_eq = try self.advance();
                 try checkTokenExpectedGot(Token{.eq=.{}}, tok_eq);
             },
-            else => {},
+            else => {
+                // e.g. 0;JMP
+                self.position -= 1;
+            },
         }
         const comp : Comp = try self.parseComp();
         const jmp : Jump = try self.parseJump();
@@ -597,7 +792,7 @@ test "instructionsFromTokens" {
     var toks : TokenStream = .{.items=&toks_array};
 
     try instructionsFromTokens(&out, &toks);
-    std.debug.print("{any}", .{out.items});
+    //std.debug.print("{any}", .{out.items});
     try testing.expectEqual(out.items.len, 1);
     var instr = out.items[0];
     try testing.expect(std.mem.eql(u8, instr.comment, tok.comment));
@@ -628,5 +823,16 @@ test "instructionsFromTokens" {
     try out.resize(0);
     try instructionsFromTokens(&out, &toks);
     try testing.expectEqual(out.items[0], Instr{.C=.{.destA=true, .destD=false, .destM=false,
+        .comp=Comp.zero, .jump=Jump.JMP}});
+
+    var toks_array4 = [_]Token {
+        Token{.zero={}},
+        Token{.semicolon={}},
+        Token{.jump=Jump.JMP},
+    };
+    toks = TokenStream{.items=&toks_array4};
+    try out.resize(0);
+    try instructionsFromTokens(&out, &toks);
+    try testing.expectEqual(out.items[0], Instr{.C=.{.destA=false, .destD=false, .destM=false,
         .comp=Comp.zero, .jump=Jump.JMP}});
 }
