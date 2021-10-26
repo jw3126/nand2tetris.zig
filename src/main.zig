@@ -18,4 +18,8 @@ pub fn main() anyerror!void {
         }
         instrs.deinit();
     }
+    const instrs_lowered = try hasm.resolveSymbols(allocator, instrs);
+    defer {
+        instrs_lowered.deinit();
+    }
 }

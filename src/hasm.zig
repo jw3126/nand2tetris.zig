@@ -331,24 +331,24 @@ const Comp = union(enum) {
 
 fn printComp(writer : anytype, comp : Comp) anyerror!void {
     switch(comp) {
-        Comp.zero    => writer.print("0", .{}),
-        Comp.one     => writer.print("1", .{}),
-        Comp.neg_one => writer.print("-1", .{}),
-        Comp.not     => |reg| {writer.print("!", .{}); try printRegister(writer, reg);},
-        Comp.neg     => |reg| {writer.print("-", .{}); try printRegister(writer, reg);},
+        Comp.zero    => try writer.print("0", .{}),
+        Comp.one     => try writer.print("1", .{}),
+        Comp.neg_one => try writer.print("-1", .{}),
+        Comp.not     => |reg| {try writer.print("!", .{}); try printRegister(writer, reg);},
+        Comp.neg     => |reg| {try writer.print("-", .{}); try printRegister(writer, reg);},
         Comp.copy    => |reg| {try printRegister(writer, reg);},
-        Comp.inc     => |reg| {try printRegister(writer, reg); writer.print("+1", .{});},
-        Comp.dec     => |reg| {try printRegister(writer, reg); writer.print("-1", .{});},
-        Comp.DplusA  => writer.print("D+A", .{}),
-        Comp.DminusA => writer.print("D-A", .{}),
-        Comp.AminusD => writer.print("A-D", .{}),
-        Comp.DandA   => writer.print("D&A", .{}),
-        Comp.DorA    => writer.print("D|A", .{}),
-        Comp.DplusM  => writer.print("D+M", .{}),
-        Comp.DminusM => writer.print("D-M", .{}),
-        Comp.MminusD => writer.print("M-D", .{}),
-        Comp.DandM   => writer.print("D&M", .{}),
-        Comp.DorM    => writer.print("D|M", .{}),
+        Comp.inc     => |reg| {try printRegister(writer, reg); try writer.print("+1", .{});},
+        Comp.dec     => |reg| {try printRegister(writer, reg); try writer.print("-1", .{});},
+        Comp.DplusA  => try writer.print("D+A", .{}),
+        Comp.DminusA => try writer.print("D-A", .{}),
+        Comp.AminusD => try writer.print("A-D", .{}),
+        Comp.DandA   => try writer.print("D&A", .{}),
+        Comp.DorA    => try writer.print("D|A", .{}),
+        Comp.DplusM  => try writer.print("D+M", .{}),
+        Comp.DminusM => try writer.print("D-M", .{}),
+        Comp.MminusD => try writer.print("M-D", .{}),
+        Comp.DandM   => try writer.print("D&M", .{}),
+        Comp.DorM    => try writer.print("D|M", .{}),
     }
 
 }
@@ -537,20 +537,93 @@ pub fn freeInstr(alloc : *Allocator, instr : Instr) void {
 }
 
 pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
-    try switch(instr) {
-        Instr.comment   => |com | writer.print("//{s}", .{com}),
-        Instr.A_addr    => |addr| writer.print("@{d}", .{addr}),
-        Instr.A_name    => |name| writer.print("@{s}", .{name}),
-        Instr.def_label => |name| writer.print("({s}):", .{name}),
+    switch(instr) {
+        Instr.comment   => |com | {try writer.print("//{s}", .{com})  ;},
+        Instr.A_addr    => |addr| {try writer.print("@{d}", .{addr})  ;},
+        Instr.A_name    => |name| {try writer.print("@{s}", .{name})  ;},
+        Instr.def_label => |name| {try writer.print("({s}):", .{name});},
         Instr.C         => |spec| {
-            if (spec.destA) writer.print("A=", .{});
-            if (spec.destD) writer.print("D=", .{});
-            if (spec.destM) writer.print("M=", .{});
+            if (spec.destA) {try writer.print("A", .{});}
+            if (spec.destD) {try writer.print("D", .{});}
+            if (spec.destM) {try writer.print("M", .{});}
+            if (spec.destA or spec.destD or spec.destM) {
+                try writer.print("=", .{});
+            }
             try printComp(writer, spec.comp);
-            writer.print(";");
+            try writer.print(";", .{});
             try printJump(writer, spec.jump);
         },
-    };
+    }
+}
+
+pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!ArrayList(Instr) {
+    var ret = ArrayList(Instr).init(alloc);
+    var symbol_table   = std.HashMap([]const u8, u16, std.hash_map.StringContext, 80).init(alloc);
+    defer symbol_table.deinit();
+    try symbol_table.put("R0", 0);
+    try symbol_table.put("R1", 1);
+    try symbol_table.put("R2", 2);
+    try symbol_table.put("R3", 3);
+    try symbol_table.put("R4", 4);
+    try symbol_table.put("R5", 5);
+    try symbol_table.put("R6", 6);
+    try symbol_table.put("R7", 7);
+    try symbol_table.put("R8", 8);
+    try symbol_table.put("R9", 9);
+    try symbol_table.put("R10",10);
+    try symbol_table.put("R11",11);
+    try symbol_table.put("R12",12);
+    try symbol_table.put("R13",13);
+    try symbol_table.put("R14",14);
+    try symbol_table.put("R15",15);
+    try symbol_table.put("SCREEN",16384);
+    try symbol_table.put("KBD",24576);
+    try symbol_table.put("SP",0);
+    try symbol_table.put("LCL",1);
+    try symbol_table.put("ARG",2);
+    try symbol_table.put("THIS",3);
+    try symbol_table.put("THAT",4);
+
+    var memloc : u16 = 16;
+    var linum : u16 = 0;
+    const stdout = std.io.getStdOut().writer();
+    for (instrs.items) |instr| {
+        try printInstr(stdout, instr);
+        try stdout.print("\n", .{});
+        switch(instr) {
+            Instr.def_label => |label| {
+                try symbol_table.put(label, linum);
+            },
+            Instr.A_name => |name| {
+                try symbol_table.put(name, memloc);
+                linum += 1;
+                memloc += 1;
+            },
+            Instr.comment => {},
+            Instr.A_addr => {linum +=1;},
+            Instr.C => { linum += 1;},
+        }
+    }
+    for (instrs.items) |instr| {
+        switch(instr) {
+            Instr.def_label => {},
+            Instr.A_name => |name| {
+                var addr : u16 = symbol_table.get(name) orelse {
+                    std.debug.print("Undefined symbol {s} {}", .{name, instr});
+                    return Error.UndefinedSymbol;
+                };
+                try ret.append(Instr{.A_addr=addr});
+            },
+            Instr.comment => {},
+            Instr.A_addr => {
+                try ret.append(instr);
+            },
+            Instr.C => {
+                try ret.append(instr);
+            },
+        }
+    }
+    return ret;
 }
 
 pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayList(Instr) {
@@ -589,6 +662,7 @@ const Error = error {
     UnexpectedEndOfTokens,
     ExpectedSemicolon,
     ExpectedJump,
+    UndefinedSymbol,
 };
 
 fn checkTokenExpectedGot(expected : Token, got : Token) Error!void {
