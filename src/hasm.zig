@@ -526,6 +526,16 @@ pub const Instr = union(enum) {
     def_label : []const u8,
 };
 
+pub fn freeInstr(alloc : *Allocator, instr : Instr) void {
+    switch(instr) {
+        Instr.comment => |s| {alloc.free(s);},
+        Instr.A_name => {},
+        Instr.def_label => {},
+        Instr.C => {},
+        Instr.A_addr => {},
+    }
+}
+
 pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
     try switch(instr) {
         Instr.comment   => |com | writer.print("//{s}", .{com}),

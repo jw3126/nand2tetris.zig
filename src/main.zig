@@ -10,5 +10,11 @@ pub fn main() anyerror!void {
 
     const allocator : *std.mem.Allocator = &gpa.allocator;
     const path = "/home/jan/nand2tetris/examples/add.asm";
-    _ = try hasm.parseFileAbsolute(allocator, path);
+    const instrs = try hasm.parseFileAbsolute(allocator, path);
+    defer {
+        for (instrs.items) |instr| {
+            hasm.freeInstr(allocator, instr);
+        }
+        instrs.deinit();
+    }
 }
