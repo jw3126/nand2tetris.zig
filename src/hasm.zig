@@ -726,32 +726,45 @@ pub const TokenStream = struct {
     }
 
     fn parseCInstr(self : *TokenStream) anyerror!Instr {
+        const pos = self.position;
         var tok : Token = try self.advance();
         // dest
         var destA = false;
         var destD = false;
         var destM = false;
-        switch(tok) {
-            // e.g. A = ...
-            Token.register   => |reg| {
-                switch(reg) {
-                    Register.A   => {
-                        destA = true;
-                    },
-                    Register.D   => {
-                        destD = true;
-                    },
-                    Register.M   => {
-                        destM = true;
-                    },
+        while (true) {
+            switch(tok) {
+                // e.g. A = ...
+                Token.register   => |reg| {
+                    switch(reg) {
+                        Register.A   => {destA = true;},
+                        Register.D   => {destD = true;},
+                        Register.M   => {destM = true;},
+                    }
+                    tok = try self.advance();
+                },
+                else => {
+                    // e.g. 0;JMP
+                    self.position -= 1;
+                    break;
+                },
+            }
+        }
+        if (destA or destD or destM) {
+            tok = try self.advance();
+            switch(tok) {
+                Token.semicolon => {
+                    // e.g D;JNE
+                    self.position = pos;
+                    destA = false;
+                    destD = false;
+                    destM = false;
+                },
+                Token.eq => {},
+                else     => {
+                    return unexpectedToken(tok, "Expected = or ;");
                 }
-                const tok_eq = try self.advance();
-                try checkTokenExpectedGot(Token{.eq=.{}}, tok_eq);
-            },
-            else => {
-                // e.g. 0;JMP
-                self.position -= 1;
-            },
+            }
         }
         const comp : Comp = try self.parseComp();
         const jmp : Jump = try self.parseJump();
@@ -846,3 +859,8 @@ test "instructionsFromTokens" {
     try testing.expectEqual(out.items[0], Instr{.C=.{.destA=false, .destD=false, .destM=false,
         .comp=Comp.zero, .jump=Jump.JMP}});
 }
+
+////////////////////////////////////////////////////////////////////////////////
+///// Machine Code
+////////////////////////////////////////////////////////////////////////////////
+

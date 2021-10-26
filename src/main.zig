@@ -9,7 +9,8 @@ pub fn main() anyerror!void {
     }
 
     const allocator : *std.mem.Allocator = &gpa.allocator;
-    const path = "/home/jan/nand2tetris/examples/add.asm";
+    // const path = "/home/jan/nand2tetris/examples/add.asm";
+    const path  ="/home/jan/nand2tetris/projects/06/pong/Pong.asm";
     const instrs = try hasm.parseFileAbsolute(allocator, path);
     defer {
         for (instrs.items) |instr| {
