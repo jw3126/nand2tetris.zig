@@ -313,6 +313,7 @@ test "set_addr" {
 test "def_label" {
     const test_allocator = testing.allocator;
     var res : m.Result(Token) = try def_label(test_allocator, "(asdf)");
+    defer freeToken(test_allocator, res.value);
     try testing.expect(std.mem.eql(u8, res.value.def_label, "asdf"));
 }
 
