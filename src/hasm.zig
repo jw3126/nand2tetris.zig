@@ -34,46 +34,87 @@ const integer = m.int(u16, .{.base=10, .parse_sign=false});
 fn isAlphaNum(x : u8) bool {
     return (('0' <= x) and (x<= '9')) or isAlpha(x);
 }
+
+fn isCharIdentifier(x : u8) bool {
+    if (('0' <= x) and (x<= '9')) return true;
+    if (isAlpha(x)) return true;
+    if (x == '.') return true;
+    if (x == '$') return true;
+    return false;
+}
 fn isAlpha(x : u8) bool {
     if (('a' <= x) and (x<= 'z')) {return true;}
     if (('A' <= x) and (x<= 'Z')) {return true;}
     if (x == '_') {return true;}
     return false;
 }
-const char_alphanum = m.ascii.wrap(isAlphaNum);
+const char_identifier = m.ascii.wrap(isCharIdentifier);
 const char_alpha = m.ascii.wrap(isAlpha);
-//const alphanum = m.many(char_alphanum, .{.min=1,.collect=false});
 const whitespace_comment = m.combine(.{spaces_or_tabs, comment});
 
-test "char_alphanum" {
+test "char_identifier" {
     const test_allocator = testing.allocator;
-    var res = try char_alphanum(test_allocator, "0");
+    var res = try char_identifier(test_allocator, "0");
     try testing.expectEqual(res.value, '0');
-    res = try char_alphanum(test_allocator, "9");
+    res = try char_identifier(test_allocator, "9");
     try testing.expectEqual(res.value, '9');
-    res = try char_alphanum(test_allocator, "4");
+    res = try char_identifier(test_allocator, "4");
     try testing.expectEqual(res.value, '4');
-    res = try char_alphanum(test_allocator, "a");
+    res = try char_identifier(test_allocator, "a");
     try testing.expectEqual(res.value, 'a');
-    res = try char_alphanum(test_allocator, "D");
+    res = try char_identifier(test_allocator, "D");
     try testing.expectEqual(res.value, 'D');
-    try expectError(char_alphanum(test_allocator, "?"), m.Error.ParserFailed);
+    try expectError(char_identifier(test_allocator, "?"), m.Error.ParserFailed);
 }
 
-const identifier : m.Parser([]const u8) = m.asStr(m.combine(
-        .{char_alpha, m.many(char_alphanum, .{.collect=false})}
-));
+const identifier_unsafe : m.Parser([]const u8) = m.asStr(
+    m.combine(
+        .{char_alpha, m.many(char_identifier, .{.collect=false})}
+    )
+);
+
+fn identifier(alloc: *std.mem.Allocator, str : []const u8) m.Error!m.Result([]const u8) {
+    var res_inner = try identifier_unsafe(alloc, str);
+    const mem = try alloc.alloc(u8, res_inner.value.len);
+    var i : u64 = 0;
+    while (i < res_inner.value.len) : (i += 1) {
+        mem[i] = res_inner.value[i];
+    }
+    res_inner.value = mem;
+    return res_inner;
+}
+
 test "identifier" {
     const test_allocator = testing.allocator;
-    var res = (try identifier(test_allocator, "hello"));
-    try testing.expect(std.mem.eql(u8, res.value, "hello"));
+    {
+        const res0 = (try identifier(test_allocator, "hello"));
+        defer test_allocator.free(res0.value);
+        try testing.expect(std.mem.eql(u8, res0.value, "hello"));
+    }
 
-    const res1 = (try identifier(test_allocator, "R0"));
+    {
+        const res1 = (try identifier(test_allocator, "R0"));
+        defer test_allocator.free(res1.value);
+        try testing.expect(std.mem.eql(u8, res1.value, "R0"));
+    }
 
-    try testing.expect(std.mem.eql(u8, res1.value, "R0"));
+    {
+        const res2 = (try identifier(test_allocator, "R0\n"));
+        defer test_allocator.free(res2.value);
+        try testing.expect(std.mem.eql(u8, res2.value, "R0"));
+    }
 
-    const res2 = (try identifier(test_allocator, "R0\n"));
-    try testing.expect(std.mem.eql(u8, res2.value, "R0"));
+    {
+        const res3 = (try identifier(test_allocator, "screen.0\n"));
+        defer test_allocator.free(res3.value);
+        try testing.expect(std.mem.eql(u8, res3.value, "screen.0"));
+    }
+
+    {
+        const res4 = (try identifier(test_allocator, "screen.drawrectangle$while_exp0\n"));
+        defer test_allocator.free(res4.value);
+        try testing.expect(std.mem.eql(u8, res4.value, "screen.drawrectangle$while_exp0"));
+    }
 }
 
 
@@ -110,10 +151,16 @@ const token : m.Parser(Token) = m.combine(.{spaces_or_tabs,
 
 test "token" {
     const test_allocator = testing.allocator;
-    const res1 = try token(test_allocator, "0;JMP");
-    try testing.expectEqual(res1.value, Token{.zero=.{}});
-    const res2 = try token(test_allocator, "@R0");
-    try testing.expect(std.mem.eql(u8, res2.value.A_name, "R0"));
+    {
+        const res = try token(test_allocator, "0;JMP");
+        defer freeToken(test_allocator, res.value);
+        try testing.expectEqual(res.value, Token{.zero=.{}});
+    }
+    {
+        const res = try token(test_allocator, "@R0");
+        defer freeToken(test_allocator, res.value);
+        try testing.expect(std.mem.eql(u8, res.value.A_name, "R0"));
+    }
 }
 
 const tokens = m.many(token, .{.collect=true});
@@ -207,31 +254,53 @@ test "char_token" {
 
 test "set_addr" {
     const test_allocator = testing.allocator;
-    const s = @as([]const u8, "ho");
-    var res : Token = mktok_A_name(s);
-    try testing.expect(std.mem.eql(u8, res.A_name, "ho"));
+    {
+        const s = @as([]const u8, "ho");
+        const res : Token = mktok_A_name(s);
+        try testing.expect(std.mem.eql(u8, res.A_name, "ho"));
+    }
+    {
+        const res = (try set_addr_name(test_allocator, "@foo")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
+    }
+    {
+        const res = (try set_addr_name(test_allocator, "@foo ")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
+    }
+    {
+        const res = (try set_addr_name(test_allocator, "@lol123//some comment")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "lol123"));
+    }
 
-    res = (try set_addr_name(test_allocator, "@foo")).value;
-    try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
+    {
+        const res : Token = (try set_addr_addr(test_allocator, "@123")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expectEqual(res.A_addr, 123);
+    }
+    {
+        const res = (try set_addr_addr(test_allocator, "@123//")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expectEqual(res.A_addr, 123);
+    }
 
-    res = (try set_addr_name(test_allocator, "@foo ")).value;
-    try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
-
-    res = (try set_addr_name(test_allocator, "@lol123//some comment")).value;
-    try testing.expect(std.mem.eql(u8, res.A_name, "lol123"));
-
-    var res2 : m.Result(Token) = try set_addr_addr(test_allocator, "@123");
-    try testing.expectEqual(res2.value.A_addr, 123);
-
-    res2 = try set_addr_addr(test_allocator, "@123//");
-    try testing.expectEqual(res2.value.A_addr, 123);
-
-    var res3 = try set_addr_name(test_allocator, "@R0");
-    try testing.expect(std.mem.eql(u8, res3.value.A_name, "R0"));
-    res3 = try set_addr_name(test_allocator, "@R0\n");
-    try testing.expect(std.mem.eql(u8, res3.value.A_name, "R0"));
-    var tok = (try token(test_allocator, "@R0")).value;
-    try testing.expect(std.mem.eql(u8, tok.A_name, "R0"));
+    {
+        const res = (try set_addr_name(test_allocator, "@R0")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
+    }
+    {
+        const res = (try set_addr_name(test_allocator, "@R0\n")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
+    }
+    {
+        const res = (try token(test_allocator, "@R0")).value;
+        defer freeToken(test_allocator, res);
+        try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
+    }
 
     try expectError(set_addr_name(test_allocator, "asdf"), m.Error.ParserFailed);
     try expectError(set_addr_name(test_allocator, "@13123"), m.Error.ParserFailed);
@@ -474,8 +543,8 @@ pub fn tokenEqual(t1 : Token, t2 : Token) bool {
 pub fn freeToken(alloc : *std.mem.Allocator, tok : Token) void {
     switch(tok) {
         Token.comment   =>  |s| alloc.free(s),
-        //Token.A_name    =>  |s| alloc.free(s),
-        //Token.def_label =>  |s| alloc.free(s),
+        Token.A_name    =>  |s| alloc.free(s),
+        Token.def_label =>  |s| alloc.free(s),
         else => {},
     }
 }
@@ -501,7 +570,7 @@ pub fn printToken(writer : anytype, tok : Token) anyerror!void {
         Token.comment   => |com| writer.print("//{s}", .{com}),
         Token.A_addr    => |addr| writer.print("@{d}", .{addr}),
         Token.A_name    => |name| writer.print("@{s}", .{name}),
-        Token.def_label => |name| writer.print("({s}):", .{name}),
+        Token.def_label => |name| writer.print("({s})", .{name}),
         Token.register  => |register| printRegister(writer, register),
         Token.semicolon => writer.print(";", .{}),
         Token.jump      => |jmp| printJump(writer, jmp),
@@ -528,11 +597,11 @@ pub const Instr = union(enum) {
 
 pub fn freeInstr(alloc : *Allocator, instr : Instr) void {
     switch(instr) {
-        Instr.comment => |s| {alloc.free(s);},
-        Instr.A_name => {},
-        Instr.def_label => {},
-        Instr.C => {},
-        Instr.A_addr => {},
+        Instr.comment   => |s| {alloc.free(s);},
+        Instr.A_name    => |s| {alloc.free(s);},
+        Instr.def_label => |s| {alloc.free(s);},
+        Instr.C         => {},
+        Instr.A_addr    => {},
     }
 }
 
@@ -541,7 +610,7 @@ pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
         Instr.comment   => |com | {try writer.print("//{s}", .{com})  ;},
         Instr.A_addr    => |addr| {try writer.print("@{d}", .{addr})  ;},
         Instr.A_name    => |name| {try writer.print("@{s}", .{name})  ;},
-        Instr.def_label => |name| {try writer.print("({s}):", .{name});},
+        Instr.def_label => |name| {try writer.print("({s})", .{name});},
         Instr.C         => |spec| {
             if (spec.destA) {try writer.print("A", .{});}
             if (spec.destD) {try writer.print("D", .{});}
@@ -586,10 +655,10 @@ pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!Arr
 
     var memloc : u16 = 16;
     var linum : u16 = 0;
-    const stdout = std.io.getStdOut().writer();
+    //const stdout = std.io.getStdOut().writer();
     for (instrs.items) |instr| {
-        try printInstr(stdout, instr);
-        try stdout.print("\n", .{});
+        // try printInstr(stdout, instr);
+        // try stdout.print("\n", .{});
         switch(instr) {
             Instr.def_label => |label| {
                 try symbol_table.put(label, linum);
@@ -633,6 +702,7 @@ pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayLis
     var buf : [1024]u8 = undefined;
     var linenum : u64 = 0;
     var ret = ArrayList(Instr).init(alloc);
+    const stdout = std.io.getStdOut().writer();
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         linenum += 1;
         var res_toks = (tokens(alloc, line)) catch |err| {
@@ -642,10 +712,16 @@ pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayLis
         var toks = res_toks.value;
         defer alloc.free(toks);
         var stream = TokenStream{.items=toks};
+        // std.debug.print("line: {s}\n", .{line});
+        // std.debug.print("toks: ", .{});
+        // for (stream.items) |tok| {
+        //     try printToken(stdout,tok);
+        // }
+        // std.debug.print("\n", .{});
+
         stream.appendInstructions(&ret) catch |err| {
             std.debug.print("Error parsing line {d}:\n {s}\n", .{linenum, line});
             std.debug.print("Tokens:\n", .{});
-            const stdout = std.io.getStdOut().writer();
             for (stream.items) |tok| {
                 try printToken(stdout,tok);
             }

@@ -18,6 +18,13 @@ pub fn main() anyerror!void {
         }
         instrs.deinit();
     }
+    const stdout = std.io.getStdOut().writer();
+    for (instrs.items) |instr| {
+        try stdout.print("\n", .{});
+        try hasm.printInstr(stdout, instr);
+        try stdout.print("\n", .{});
+        try stdout.print("{any} \n", .{instr});
+    }
     const instrs_lowered = try hasm.resolveSymbols(allocator, instrs);
     defer {
         instrs_lowered.deinit();
