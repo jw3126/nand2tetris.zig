@@ -586,13 +586,13 @@ pub fn printToken(writer : anytype, tok : Token) anyerror!void {
     };
 }
 
-//const CInstr = struct
+const CInstr = struct {destA : bool, destD :bool, destM :bool, comp : Comp, jump : Jump};
 
 pub const Instr = union(enum) {
     comment   : []const u8,
     A_addr    : u16,
     A_name    : []const u8,
-    C         : struct {destA : bool, destD :bool, destM :bool, comp : Comp, jump : Jump},
+    C         : CInstr,
     def_label : []const u8,
 };
 
@@ -1048,9 +1048,83 @@ fn machineCodeFromA_addr(addr : u16) u16 {
     //return addr;
 }
 
-fn machineCodeFromC(comp : Comp) u16 {
-    // TODO
-    _=comp;
-    unreachable;
-    //return 0;
+fn jumpBits(jmp : Jump) u16 {
+    const ret : u16 = switch(jmp) {
+        Jump.J00 => 0,
+        Jump.JGT => 1,
+        Jump.JEQ => 2,
+        Jump.JGE => 3,
+        Jump.JLT => 4,
+        Jump.JNE => 5,
+        Jump.JLE => 6,
+        Jump.JMP => 7,
+    };
+    return ret;
+}
+
+fn compBits(comp:Comp) u16 {
+    const c6 : u16 = 1 <<  6;
+    const c5 : u16 = 1 <<  7;
+    const c4 : u16 = 1 <<  8;
+    const c3 : u16 = 1 <<  9;
+    const c2 : u16 = 1 << 10;
+    const c1 : u16 = 1 << 11;
+    const  a : u16 = 1 << 12;
+    const  z : u16 = 0;
+    switch(comp) {
+        Comp.zero      => z | c1 |  z | c3 |  z | c5 |  z,
+        Comp.one       => z | c1 | c2 | c3 | c4 | c5 | c6,
+        Comp.DplusA    => z |  z |  z |  z |  z | c5 |  z,
+        Comp.DminusA   => z |  z | c2 |  z |  z | c5 | c6,
+        Comp.AminusD   => z |  z |  z |  z | c5 | c5 | c6,
+        Comp.DandA     => z |  z |  z |  z |  z |  z |  z,
+        Comp.DorA      => z |  z | c2 |  z | c4 |  z | c6,
+        Comp.DplusM    => a |  z |  z |  z |  z | c5 |  z,
+        Comp.DminusM   => a |  z |  z |  z |  z |  z |  z,
+        Comp.MminusD   => a |  z |  z |  z | c4 | c5 | c6,
+        Comp.DandM     => a |  z |  z |  z |  z |  z |  z,
+        Comp.DorM      => a |  z | c2 |  z | c4 |  z | c6,
+        Comp.not => |reg| switch(reg) {
+            Register.A => z | c1 | c2 |  z |  z |  z | c6,
+            Register.D => z |  z |  z | c3 | c4 |  z | c6,
+            Register.M => a | c1 | c2 |  z |  z |  z | c6,
+        },
+        Comp.neg => |reg| switch(reg) {
+            Register.A => z | c1 | c2 |  z |  z | c5 | c6,
+            Register.D => z |  z |  z | c3 | c4 | c5 | c6,
+            Register.M => a | c1 | c2 |  z |  z | c5 | c6,
+        },
+        Comp.copy=> |reg| switch(reg) {
+            Register.A => z | c1 | c2 |  z |  z |  z |  z,
+            Register.D => z |  z |  z | c3 | c4 |  z |  z,
+            Register.M => a | c1 | c2 |  z |  z |  z |  z,
+        },
+        Comp.inc => |reg| switch(reg) {
+            Register.A => z | c1 | c2 |  z | c4 | c5 | c6,
+            Register.D => z |  z | c2 | c3 | c4 | c5 | c6,
+            Register.M => a | c1 | c2 |  z | c4 | c5 | c6,
+        },
+        Comp.dec => |reg| switch(reg) {
+            Register.A => z | c1 | c2 |  z |  z | c5 |  z,
+            Register.D => z |  z |  z | c3 | c4 | c5 |  z,
+            Register.M => a | c1 | c2 |  z |  z | c5 |  z,
+        },
+    }
+}
+
+fn destBits(cinstr : CInstr) u16 {
+    var ret : u16 = 0;
+    const d3 : u16 = 1 <<  3;
+    const d2 : u16 = 1 <<  4;
+    const d1 : u16 = 1 <<  5;
+    if (cinstr.destM) {ret = ret | d3;}
+    if (cinstr.destD) {ret = ret | d2;}
+    if (cinstr.destA) {ret = ret | d1;}
+    return ret;
+}
+
+fn machineCodeFromC(cinstr : CInstr) u16 {
+
+    const base : u16 = (1 << 15) | (1 << 14) | (1<<13);
+    return base | compBits(cinstr.comp) | destBits(cinstr) | jumpBits(cinstr.jump);
 }
