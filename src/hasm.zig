@@ -625,11 +625,40 @@ pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
         },
     }
 }
+const SymbolTable = std.HashMap([]const u8, u16, std.hash_map.StringContext, 80);
+// caller must free the symbol table
+fn buildSymbolTable(
+    alloc : *Allocator,
+    instrs : []const Instr) anyerror!SymbolTable {
+    // const stdout = std.io.getStdOut().writer();
+    // collect labels first
+    // this is important, otherwise we may reserve memory
+    // locations for variables that turn out to be labels later
+    var linum : u16 = 0;
+    var label_table  = SymbolTable.init(alloc);
+    defer label_table.deinit();
+    for (instrs) |instr| {
+        // try printInstr(stdout, instr);
+        // try stdout.print("\n", .{});
+        switch(instr) {
+            Instr.def_label => |label| {
+                var res = try label_table.getOrPut(label);
+                if (res.found_existing) {
+                    std.debug.print("Error: Duplicate definition of label ({s})", .{label});
+                    return Error.SymbolResolutionError;
+                } else {
+                    res.value_ptr.* = linum;
+                }
+            },
+            Instr.A_name => {linum +=1;},
+            Instr.comment => {},
+            Instr.A_addr => {linum +=1;},
+            Instr.C => { linum += 1;},
+        }
+    }
 
-pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!ArrayList(Instr) {
-    var ret = ArrayList(Instr).init(alloc);
-    var symbol_table   = std.HashMap([]const u8, u16, std.hash_map.StringContext, 80).init(alloc);
-    defer symbol_table.deinit();
+    var symbol_table = SymbolTable.init(alloc);
+    errdefer symbol_table.deinit();
     try symbol_table.put("R0", 0);
     try symbol_table.put("R1", 1);
     try symbol_table.put("R2", 2);
@@ -655,32 +684,42 @@ pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!Arr
     try symbol_table.put("THAT",4);
 
     var memloc : u16 = 16;
-    var linum : u16 = 0;
-    //const stdout = std.io.getStdOut().writer();
-    for (instrs.items) |instr| {
-        // try printInstr(stdout, instr);
-        // try stdout.print("\n", .{});
-        switch(instr) {
-            Instr.def_label => |label| {
-                try symbol_table.put(label, linum);
-            },
+    for (instrs) |instr| {
+        switch (instr) {
             Instr.A_name => |name| {
-                try symbol_table.put(name, memloc);
-                linum += 1;
+                _ = label_table.get(name) orelse {
+                    var res_symbol = try symbol_table.getOrPut(name);
+                    if (!res_symbol.found_existing) {
+                        res_symbol.value_ptr.* = memloc;
+                    }
+                };
                 memloc += 1;
             },
-            Instr.comment => {},
-            Instr.A_addr => {linum +=1;},
-            Instr.C => { linum += 1;},
+            else => {},
         }
     }
+
+    var label_entries = label_table.iterator();
+    while (label_entries.next()) |entry| {
+        try symbol_table.putNoClobber(entry.key_ptr.*, entry.value_ptr.*);
+    }
+    return symbol_table;
+}
+
+pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!ArrayList(Instr) {
+    var ret = ArrayList(Instr).init(alloc);
+    var symbol_table = try buildSymbolTable(alloc, instrs.items);
+    defer symbol_table.deinit();
+
+    // now resolve
+    //
     for (instrs.items) |instr| {
         switch(instr) {
             Instr.def_label => {},
             Instr.A_name => |name| {
                 var addr : u16 = symbol_table.get(name) orelse {
                     std.debug.print("Undefined symbol {s} {}", .{name, instr});
-                    return Error.UndefinedSymbol;
+                    unreachable;
                 };
                 try ret.append(Instr{.A_addr=addr});
             },
@@ -743,6 +782,7 @@ const Error = error {
     ExpectedSemicolon,
     ExpectedJump,
     UndefinedSymbol,
+    SymbolResolutionError,
 };
 
 const InvalidAddrError = error {InvalidAddr};
@@ -1135,19 +1175,19 @@ fn machineCodeFromC(cinstr : CInstr) u16 {
 
 pub fn printMachineInstr(writer : anytype, minstr : u16) anyerror!void {
     // `{[argument][specifier]:[fill][alignment][width].[precision]}`
-    try writer.print("{b:0>16}", .{minstr});
-    // const one : u16 = 1;
-    // var i : u4 = 15;
-    // while (true) {
-    //     var mask : u16 = one << i;
-    //     var digit = @bitCast(u1, (mask == mask & minstr));
-    //     try writer.print("{d}", .{digit});
-    //     if (@mod(i, 4) == 0) {
-    //         try writer.print(" ", .{});
-    //     }
-    //     if (i == 0) break;
-    //     i = i - 1;
-    // }
+    // try writer.print("{b:0>16}", .{minstr});
+    const one : u16 = 1;
+    var i : u4 = 15;
+    while (true) {
+        var mask : u16 = one << i;
+        var digit = @bitCast(u1, (mask == mask & minstr));
+        try writer.print("{d}", .{digit});
+        if (@mod(i, 4) == 0) {
+            try writer.print(" ", .{});
+        }
+        if (i == 0) break;
+        i = i - 1;
+    }
 }
 
 fn assembleFileAbsolute(alloc : *Allocator,
