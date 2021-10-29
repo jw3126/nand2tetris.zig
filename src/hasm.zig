@@ -742,6 +742,17 @@ const Error = error {
     UndefinedSymbol,
 };
 
+const InvalidAddrError = error {InvalidAddr};
+fn checkAddr(addr : u16) InvalidAddrError!u16 {
+    const topbit : u16 = 1<<15;
+    if ((addr & topbit) == topbit) {
+        std.debug.print("Invalid address: {b}. Top bit must be zero.", .{addr});
+        return InvalidAddrError.InvalidAddr;
+    } else {
+        return addr;
+    }
+}
+
 fn checkTokenExpectedGot(expected : Token, got : Token) Error!void {
     if (tokenEqual(expected, got)) {
         return void{};
@@ -926,7 +937,7 @@ pub const TokenStream = struct {
         var tok : Token = try self.advance();
         var instr : Instr = switch(tok) {
             Token.comment    => |com | Instr{.comment=com},
-            Token.A_addr     => |addr| Instr{.A_addr=addr},
+            Token.A_addr     => |addr| Instr{.A_addr=try checkAddr(addr)},
             Token.A_name     => |name| Instr{.A_name=name},
             Token.def_label  => |labl| Instr{.def_label=labl},
             else => {
@@ -1014,4 +1025,32 @@ test "instructionsFromTokens" {
 ////////////////////////////////////////////////////////////////////////////////
 ///// Machine Code
 ////////////////////////////////////////////////////////////////////////////////
+const LoweringError = error {
+    NoMachineCodeForComment,
+    NoMachineCodeForA_name,
+    NoMachineCodeFordef_label,
+};
 
+fn machineCodeFromInstr(instr : Instr) LoweringError!u16 {
+    switch(instr) {
+        Instr.comment => {return LoweringError.NoMachineCodeForComment;},
+        Instr.A_addr    => |addr| {return machineCodeFromA_addr(addr);},
+        Instr.A_name    => {return LoweringError.NoMachineCodeForA_name;},
+        Instr.C         => |comp| {return machineCodeFromC(comp);},
+        Instr.def_label => {return LoweringError.NoMachineCodeFordef_label;},
+    }
+}
+
+fn machineCodeFromA_addr(addr : u16) u16 {
+    // TODO
+    _=addr;
+    unreachable;
+    //return addr;
+}
+
+fn machineCodeFromC(comp : Comp) u16 {
+    // TODO
+    _=comp;
+    unreachable;
+    //return 0;
+}
