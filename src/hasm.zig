@@ -711,7 +711,9 @@ pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayLis
             return err;
         };
         var toks = res_toks.value;
-        defer alloc.free(toks);
+        defer {
+            alloc.free(toks);
+        }
         var stream = TokenStream{.items=toks};
         // std.debug.print("line: {s}\n", .{line});
         // std.debug.print("toks: ", .{});
@@ -725,6 +727,7 @@ pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayLis
             std.debug.print("Tokens:\n", .{});
             for (stream.items) |tok| {
                 try printToken(stdout,tok);
+                try stdout.print(" ", .{});
             }
             std.debug.print("\n", .{});
             return err;
@@ -782,16 +785,6 @@ pub const TokenStream = struct {
         }
     }
 
-    fn advanceSkipComments(self : *TokenStream) Error!Token {
-        while (true) {
-            var tok = try self.advance();
-            switch(tok) {
-                Token.comment => {continue;},
-                else => {return tok;},
-            }
-        }
-    }
-
     fn hasTokensLeft(self : *TokenStream) bool {
         return (self.position < self.items.len);
     }
@@ -825,6 +818,7 @@ pub const TokenStream = struct {
                 const tok_op = try self.advance();
                 const op : Op =  switch(tok_op) {
                     Token.comment => {
+                        self.position -= 1;
                         return Comp{.copy=reg};
                     },
                     Token.semicolon => {
@@ -875,12 +869,19 @@ pub const TokenStream = struct {
         if (!self.hasTokensLeft()) {
             return Jump.J00;
         }
-        var tok = try self.advanceSkipComments();
-        try checkTokenExpectedGot(Token{.semicolon=.{}}, tok);
+        var tok = try self.advance();
+        switch(tok) {
+            Token.semicolon => {},
+            Token.comment => {
+                self.position -= 1;
+                return Jump.J00;
+            },
+            else => {return unexpectedToken(tok, "Expected ; or // comment");},
+        }
         if (!self.hasTokensLeft()) {
             return Jump.J00;
         }
-        tok = try self.advanceSkipComments();
+        tok = try self.advance();
         switch(tok) {
             Token.jump => |jmp|{return jmp;},
             else => {return unexpectedToken(tok, "Expected jump");},
@@ -1031,10 +1032,14 @@ const LoweringError = error {
     NoMachineCodeFordef_label,
 };
 
-fn machineCodeFromInstr(instr : Instr) LoweringError!u16 {
+const MachineCodeFromInstrError = LoweringError||InvalidAddrError;
+pub fn machineCodeFromInstr(instr : Instr) MachineCodeFromInstrError!u16 {
     switch(instr) {
         Instr.comment => {return LoweringError.NoMachineCodeForComment;},
-        Instr.A_addr    => |addr| {return machineCodeFromA_addr(addr);},
+        Instr.A_addr    => |addr| {
+            _ = try checkAddr(addr);
+            return addr;
+        },
         Instr.A_name    => {return LoweringError.NoMachineCodeForA_name;},
         Instr.C         => |comp| {return machineCodeFromC(comp);},
         Instr.def_label => {return LoweringError.NoMachineCodeFordef_label;},
@@ -1042,10 +1047,7 @@ fn machineCodeFromInstr(instr : Instr) LoweringError!u16 {
 }
 
 fn machineCodeFromA_addr(addr : u16) u16 {
-    // TODO
-    _=addr;
-    unreachable;
-    //return addr;
+    return addr;
 }
 
 fn jumpBits(jmp : Jump) u16 {
@@ -1071,9 +1073,10 @@ fn compBits(comp:Comp) u16 {
     const c1 : u16 = 1 << 11;
     const  a : u16 = 1 << 12;
     const  z : u16 = 0;
-    switch(comp) {
+    const ret : u16 = switch(comp) {
         Comp.zero      => z | c1 |  z | c3 |  z | c5 |  z,
         Comp.one       => z | c1 | c2 | c3 | c4 | c5 | c6,
+        Comp.neg_one   => z | c1 | c2 | c3 |  z | c5 |  z,
         Comp.DplusA    => z |  z |  z |  z |  z | c5 |  z,
         Comp.DminusA   => z |  z | c2 |  z |  z | c5 | c6,
         Comp.AminusD   => z |  z |  z |  z | c5 | c5 | c6,
@@ -1109,7 +1112,8 @@ fn compBits(comp:Comp) u16 {
             Register.D => z |  z |  z | c3 | c4 | c5 |  z,
             Register.M => a | c1 | c2 |  z |  z | c5 |  z,
         },
-    }
+    };
+    return ret;
 }
 
 fn destBits(cinstr : CInstr) u16 {
@@ -1127,4 +1131,45 @@ fn machineCodeFromC(cinstr : CInstr) u16 {
 
     const base : u16 = (1 << 15) | (1 << 14) | (1<<13);
     return base | compBits(cinstr.comp) | destBits(cinstr) | jumpBits(cinstr.jump);
+}
+
+pub fn printMachineInstr(writer : anytype, minstr : u16) anyerror!void {
+    // `{[argument][specifier]:[fill][alignment][width].[precision]}`
+    try writer.print("{b:0>16}", .{minstr});
+    // const one : u16 = 1;
+    // var i : u4 = 15;
+    // while (true) {
+    //     var mask : u16 = one << i;
+    //     var digit = @bitCast(u1, (mask == mask & minstr));
+    //     try writer.print("{d}", .{digit});
+    //     if (@mod(i, 4) == 0) {
+    //         try writer.print(" ", .{});
+    //     }
+    //     if (i == 0) break;
+    //     i = i - 1;
+    // }
+}
+
+fn assembleFileAbsolute(alloc : *Allocator,
+    path_asm : [] const u8,
+    path_hack : [] const u8,
+    ) anyerror!void {
+    const instrs = try parseFileAbsolute(alloc, path_asm);
+    defer {
+        for (instrs.items) |instr| {
+            freeInstr(alloc, instr);
+        }
+        instrs.deinit();
+    }
+    const instrs_lowered = try resolveSymbols(alloc, instrs);
+    defer {
+        instrs_lowered.deinit();
+    }
+    const file = try std.fs.openFileAbsolute(path_hack, .{.write=true});
+    defer file.close();
+    const writer = file.writer();
+    for (instrs_lowered.items) |instr| {
+        var machinstr : u16 = machineCodeFromInstr(instr);
+        printMachineInstr(writer, machinstr);
+    }
 }
