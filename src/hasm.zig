@@ -6,12 +6,6 @@ const ArrayList = std.ArrayList;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-//const spaces_or_tabs = m.discard(
-//    m.many(
-//        m.ascii.char(' '), .{.collect=false}
-//    )
-//);
-
 const spaces_or_tabs = m.discard(
     m.many(m.ascii.space, .{.collect=false})
 );
@@ -153,12 +147,12 @@ test "token" {
     const test_allocator = testing.allocator;
     {
         const res = try token(test_allocator, "0;JMP");
-        defer freeToken(test_allocator, res.value);
+        defer res.value.free(test_allocator);
         try testing.expectEqual(res.value, Token{.zero=.{}});
     }
     {
         const res = try token(test_allocator, "@R0");
-        defer freeToken(test_allocator, res.value);
+        defer res.value.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.value.A_name, "R0"));
     }
 }
@@ -261,44 +255,44 @@ test "set_addr" {
     }
     {
         const res = (try set_addr_name(test_allocator, "@foo")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
     }
     {
         const res = (try set_addr_name(test_allocator, "@foo ")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "foo"));
     }
     {
         const res = (try set_addr_name(test_allocator, "@lol123//some comment")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "lol123"));
     }
 
     {
         const res : Token = (try set_addr_addr(test_allocator, "@123")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expectEqual(res.A_addr, 123);
     }
     {
         const res = (try set_addr_addr(test_allocator, "@123//")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expectEqual(res.A_addr, 123);
     }
 
     {
         const res = (try set_addr_name(test_allocator, "@R0")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
     }
     {
         const res = (try set_addr_name(test_allocator, "@R0\n")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
     }
     {
         const res = (try token(test_allocator, "@R0")).value;
-        defer freeToken(test_allocator, res);
+        defer res.free(test_allocator);
         try testing.expect(std.mem.eql(u8, res.A_name, "R0"));
     }
 
@@ -313,7 +307,7 @@ test "set_addr" {
 test "def_label" {
     const test_allocator = testing.allocator;
     var res : m.Result(Token) = try def_label(test_allocator, "(asdf)");
-    defer freeToken(test_allocator, res.value);
+    defer res.value.free(test_allocator);
     try testing.expect(std.mem.eql(u8, res.value.def_label, "asdf"));
 }
 
@@ -390,6 +384,20 @@ const Jump = enum {
             Jump.JMP => writer.print("JMP", .{}),
         };
     }
+
+    fn machineBits(jmp : Jump) u16 {
+        const ret : u16 = switch(jmp) {
+            Jump.J00 => 0,
+            Jump.JGT => 1,
+            Jump.JEQ => 2,
+            Jump.JGE => 3,
+            Jump.JLT => 4,
+            Jump.JNE => 5,
+            Jump.JLE => 6,
+            Jump.JMP => 7,
+        };
+        return ret;
+    }
 };
 
 const Comp = union(enum) {
@@ -436,6 +444,63 @@ const Comp = union(enum) {
             Comp.DorM    => try writer.print("D|M", .{}),
         }
     }
+
+    fn equals(comp1 : Comp, comp2 : Comp) bool {
+        return comp1.machineBits() == comp2.machineBits();
+    }
+
+    fn machineBits(comp:Comp) u16 {
+        const c6 : u16 = 1 <<  6;
+        const c5 : u16 = 1 <<  7;
+        const c4 : u16 = 1 <<  8;
+        const c3 : u16 = 1 <<  9;
+        const c2 : u16 = 1 << 10;
+        const c1 : u16 = 1 << 11;
+        const  a : u16 = 1 << 12;
+        const  z : u16 = 0;
+        const ret : u16 = switch(comp) {
+            Comp.zero      => z | c1 |  z | c3 |  z | c5 |  z,
+            Comp.one       => z | c1 | c2 | c3 | c4 | c5 | c6,
+            Comp.neg_one   => z | c1 | c2 | c3 |  z | c5 |  z,
+            Comp.DplusA    => z |  z |  z |  z |  z | c5 |  z,
+            Comp.DminusA   => z |  z | c2 |  z |  z | c5 | c6,
+            Comp.AminusD   => z |  z |  z |  z | c5 | c5 | c6,
+            Comp.DandA     => z |  z |  z |  z |  z |  z |  z,
+            Comp.DorA      => z |  z | c2 |  z | c4 |  z | c6,
+            Comp.DplusM    => a |  z |  z |  z |  z | c5 |  z,
+            Comp.DminusM   => a |  z |  z |  z |  z |  z |  z,
+            Comp.MminusD   => a |  z |  z |  z | c4 | c5 | c6,
+            Comp.DandM     => a |  z |  z |  z |  z |  z |  z,
+            Comp.DorM      => a |  z | c2 |  z | c4 |  z | c6,
+            Comp.not => |reg| switch(reg) {
+                Register.A => z | c1 | c2 |  z |  z |  z | c6,
+                Register.D => z |  z |  z | c3 | c4 |  z | c6,
+                Register.M => a | c1 | c2 |  z |  z |  z | c6,
+            },
+            Comp.neg => |reg| switch(reg) {
+                Register.A => z | c1 | c2 |  z |  z | c5 | c6,
+                Register.D => z |  z |  z | c3 | c4 | c5 | c6,
+                Register.M => a | c1 | c2 |  z |  z | c5 | c6,
+            },
+            Comp.copy=> |reg| switch(reg) {
+                Register.A => z | c1 | c2 |  z |  z |  z |  z,
+                Register.D => z |  z |  z | c3 | c4 |  z |  z,
+                Register.M => a | c1 | c2 |  z |  z |  z |  z,
+            },
+            Comp.inc => |reg| switch(reg) {
+                Register.A => z | c1 | c2 |  z | c4 | c5 | c6,
+                Register.D => z |  z | c2 | c3 | c4 | c5 | c6,
+                Register.M => a | c1 | c2 |  z | c4 | c5 | c6,
+            },
+            Comp.dec => |reg| switch(reg) {
+                Register.A => z | c1 | c2 |  z |  z | c5 |  z,
+                Register.D => z |  z |  z | c3 | c4 | c5 |  z,
+                Register.M => a | c1 | c2 |  z |  z | c5 |  z,
+            },
+        };
+        return ret;
+    }
+
 };
 
 fn binaryOp(reg1: Register, op : Token, reg2 : Register) anyerror!Comp {
@@ -510,91 +575,118 @@ pub const Token = union(enum) {
             Token.jump      => |jmp| writer.print("{}", .{jmp}),
         };
     }
+    pub fn free(tok : Token, alloc : *std.mem.Allocator) void {
+        switch(tok) {
+            Token.comment   =>  |s| alloc.free(s),
+            Token.A_name    =>  |s| alloc.free(s),
+            Token.def_label =>  |s| alloc.free(s),
+            else => {},
+        }
+    }
+    pub fn equals(t1 : Token, t2 : Token) bool {
+        const ret = switch(t1) {
+            Token.comment => |str1| switch(t2) {
+                Token.comment => |str2| std.mem.eql(u8, str1, str2),
+                else => false,
+            },
+            Token.A_addr => |x1| switch(t2) {
+                Token.A_addr => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.A_name => |str1| switch(t2) {
+                Token.A_name => |str2| std.mem.eql(u8, str1, str2),
+                else => false,
+            },
+            Token.def_label => |str1| switch(t2) {
+                Token.def_label => |str2| std.mem.eql(u8, str1, str2),
+                else => false,
+            },
+            Token.register => |x1| switch(t2) {
+                Token.register => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.semicolon => |x1| switch(t2) {
+                Token.semicolon => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.jump => |x1| switch(t2) {
+                Token.jump => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.eq => |x1| switch(t2) {
+                Token.eq => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.plus => |x1| switch(t2) {
+                Token.plus => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.minus => |x1| switch(t2) {
+                Token.minus => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.zero => |x1| switch(t2) {
+                Token.zero => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.one => |x1| switch(t2) {
+                Token.one => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.not => |x1| switch(t2) {
+                Token.not => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.and_ => |x1| switch(t2) {
+                Token.and_ => |x2| (x1 == x2),
+                else => false,
+            },
+            Token.or_ => |x1| switch(t2) {
+                Token.or_ => |x2| (x1 == x2),
+                else => false,
+            },
+        };
+        return ret;
+    }
+
 };
 
-pub fn tokenEqual(t1 : Token, t2 : Token) bool {
-    const ret = switch(t1) {
-        Token.comment => |str1| switch(t2) {
-            Token.comment => |str2| std.mem.eql(u8, str1, str2),
-            else => false,
-        },
-        Token.A_addr => |x1| switch(t2) {
-            Token.A_addr => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.A_name => |str1| switch(t2) {
-            Token.A_name => |str2| std.mem.eql(u8, str1, str2),
-            else => false,
-        },
-        Token.def_label => |str1| switch(t2) {
-            Token.def_label => |str2| std.mem.eql(u8, str1, str2),
-            else => false,
-        },
-        Token.register => |x1| switch(t2) {
-            Token.register => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.semicolon => |x1| switch(t2) {
-            Token.semicolon => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.jump => |x1| switch(t2) {
-            Token.jump => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.eq => |x1| switch(t2) {
-            Token.eq => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.plus => |x1| switch(t2) {
-            Token.plus => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.minus => |x1| switch(t2) {
-            Token.minus => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.zero => |x1| switch(t2) {
-            Token.zero => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.one => |x1| switch(t2) {
-            Token.one => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.not => |x1| switch(t2) {
-            Token.not => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.and_ => |x1| switch(t2) {
-            Token.and_ => |x2| (x1 == x2),
-            else => false,
-        },
-        Token.or_ => |x1| switch(t2) {
-            Token.or_ => |x2| (x1 == x2),
-            else => false,
-        },
-    };
-    return ret;
-}
-
-pub fn freeToken(alloc : *std.mem.Allocator, tok : Token) void {
-    switch(tok) {
-        Token.comment   =>  |s| alloc.free(s),
-        Token.A_name    =>  |s| alloc.free(s),
-        Token.def_label =>  |s| alloc.free(s),
-        else => {},
-    }
-}
 
 pub fn freeTokens(alloc: *Allocator, toks : ArrayList(Token)) void {
     for (toks.items) |tok| {
-        freeToken(alloc, tok);
+        tok.free(alloc);
     }
     toks.deinit();
 }
 
-const CInstr = struct {destA : bool, destD :bool, destM :bool, comp : Comp, jump : Jump};
+const CInstr = struct {
+    destA : bool,
+    destD :bool,
+    destM :bool,
+    comp : Comp,
+    jump : Jump,
+    pub fn equals(c1 : CInstr, c2 : CInstr) bool {
+        return (c1.destA == c2.destA) and
+            (c1.destD == c2.destD) and
+            (c1.destM == c2.destM) and
+            (c1.comp.equals(c2.comp)) and
+            (c1.jump  == c2.jump);
+    }
+
+    fn machineBits(cinstr : CInstr) u16 {
+        const base : u16 = (1 << 15) | (1 << 14) | (1<<13);
+
+        var destBits : u16 = 0;
+        const d3 : u16 = 1 <<  3;
+        const d2 : u16 = 1 <<  4;
+        const d1 : u16 = 1 <<  5;
+        if (cinstr.destM) {destBits = destBits | d3;}
+        if (cinstr.destD) {destBits = destBits | d2;}
+        if (cinstr.destA) {destBits = destBits | d1;}
+
+        return base | cinstr.comp.machineBits() | destBits | cinstr.jump.machineBits();
+    }
+};
 
 pub const Instr = union(enum) {
     comment   : []const u8,
@@ -632,7 +724,88 @@ pub const Instr = union(enum) {
             Instr.A_addr    => {},
         }
     }
+
+    pub fn machineCode(instr : Instr) MachineCodeFromInstrError!u16 {
+        return switch(instr) {
+            Instr.comment => {return LoweringError.NoMachineCodeForComment;},
+            Instr.A_addr    => |addr| {
+                _ = try checkAddr(addr);
+                return addr;
+            },
+            Instr.A_name    => {return LoweringError.NoMachineCodeForA_name;},
+            Instr.C         => |cinstr| cinstr.machineBits(),
+            Instr.def_label => {return LoweringError.NoMachineCodeFordef_label;},
+        };
+    }
+
+    pub fn equals(instr1 :Instr, instr2 : Instr) bool {
+        const ret = switch(instr1) {
+            Instr.comment   => |com1| switch(instr2) {
+                Instr.comment => |com2| std.mem.eql(u8,com1, com2),
+                else => false,
+            },
+            Instr.A_addr    => |addr1| switch(instr2) {
+                Instr.A_addr => |addr2| addr1 == addr2,
+                else => false,
+            },
+            Instr.A_name    => |name1| switch(instr2) {
+                Instr.A_name => |name2| std.mem.eql(u8,name1, name2),
+                else => false,
+
+            },
+            Instr.C         => |c1| switch(instr2) {
+                Instr.C => |c2| c1.equals(c2),
+                else => false,
+            },
+            Instr.def_label => |label1| switch(instr2) {
+                Instr.def_label => |label2| std.mem.eql(u8,label1, label2),
+                else => false,
+            },
+        };
+        return ret;
+    }
 };
+
+test "Instr" {
+    const test_allocator = testing.allocator;
+    {
+        const instr1 = try instrFromString(test_allocator, "0;JMP");
+        const instr2 = Instr{
+            .C=.{
+                .destA=false,
+                .destD=false,
+                .destM=false,
+                .jump=Jump.JMP,
+                .comp=Comp{.zero=.{}},
+            }
+        };
+        try std.testing.expect(instr1.equals(instr2));
+    }
+    {
+        const instr1 = try instrFromString(test_allocator, "D = A");
+        const instr2 = Instr{
+            .C=.{
+                .destA=false,
+                .destD=true,
+                .destM=false,
+                .jump=Jump.J00,
+                .comp=Comp{.copy=Register.A},
+            }
+        };
+        try std.testing.expect(instr1.equals(instr2));
+    }
+    {
+        const instr1 = try instrFromString(test_allocator, "@1233");
+        const instr2 = Instr{.A_addr = 1233,};
+        try std.testing.expect(instr1.equals(instr2));
+    }
+    {
+        const instr1 = try instrFromString(test_allocator, "@hoho");
+        defer instr1.free(test_allocator);
+        const instr2 = Instr{.A_name = "hoho",};
+        try std.testing.expect(instr1.equals(instr2));
+    }
+}
 
 const SymbolTable = std.HashMap([]const u8, u16, std.hash_map.StringContext, 80);
 // caller must free the symbol table
@@ -744,42 +917,65 @@ pub fn resolveSymbols(alloc: *Allocator, instrs : ArrayList(Instr)) anyerror!Arr
     return ret;
 }
 
+pub fn appendParsedString(
+    alloc : *Allocator,
+    ret : *ArrayList(Instr),
+    line : []const u8
+) !void {
+    const res_toks = (tokens(alloc, line)) catch |err| {
+        std.debug.print("Error tokenizing {s}\n", .{line});
+        return err;
+    };
+    const toks = res_toks.value;
+    defer alloc.free(toks);
+    errdefer {
+        for (toks) |tok| {
+            tok.free(alloc);
+        }
+    }
+
+    var stream = TokenStream{.items=toks};
+    stream.appendInstructions(ret) catch |err| {
+        std.debug.print("Error parsing {s}\n", .{line});
+        std.debug.print("Tokens:\n", .{});
+        for (stream.items) |tok| {
+            std.debug.print("{} ", .{tok});
+        }
+        std.debug.print("\n", .{});
+        return err;
+    };
+}
+
+fn instrFromString(alloc : *Allocator, s : [] const u8) !Instr {
+    var instrs : ArrayList(Instr) = ArrayList(Instr).init(alloc);
+    defer instrs.deinit();
+    try appendParsedString(alloc, &instrs, s);
+    const N = instrs.items.len;
+    switch(N) {
+        1 => {return instrs.items[0];},
+        else => {
+            std.debug.print("Expected exactly one instruction. Got {d} instructions: \n", .{N});
+            for (instrs.items) |instr| {
+                std.debug.print("{}", .{instr});
+            }
+            return error.HighlanderExpected;
+        }
+    }
+}
+
 pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayList(Instr) {
     const file = try std.fs.openFileAbsolute(path, .{.read=true});
     defer file.close();
     const reader = std.io.bufferedReader(file.reader()).reader();
     var buf : [1024]u8 = undefined;
     var linenum : u64 = 0;
-    var ret = ArrayList(Instr).init(alloc);
-    const stdout = std.io.getStdOut().writer();
+    var ret : ArrayList(Instr) = ArrayList(Instr).init(alloc);
     while (try reader.readUntilDelimiterOrEof(&buf, '\n')) |line| {
         linenum += 1;
-        var res_toks = (tokens(alloc, line)) catch |err| {
-            std.debug.print("Error tokenizing line\n {d} : {s}\n", .{linenum, line});
+        appendParsedString(alloc, &ret, line) catch |err| {
+            std.debug.print("Error in line {d}:", .{linenum});
             return err;
         };
-        var toks = res_toks.value;
-        defer {
-            alloc.free(toks);
-        }
-        var stream = TokenStream{.items=toks};
-        // std.debug.print("line: {s}\n", .{line});
-        // std.debug.print("toks: ", .{});
-        // for (stream.items) |tok| {
-        //     try printToken(stdout,tok);
-        // }
-        // std.debug.print("\n", .{});
-
-        stream.appendInstructions(&ret) catch |err| {
-            std.debug.print("Error parsing line {d}:\n {s}\n", .{linenum, line});
-            std.debug.print("Tokens:\n", .{});
-            for (stream.items) |tok| {
-                try stdout.print("{} ", .{tok});
-            }
-            std.debug.print("\n", .{});
-            return err;
-        };
-        //std.debug.print("//// Stop Parsing: ~~{s}~~\n", .{line});
     }
     return ret;
 }
@@ -805,7 +1001,7 @@ fn checkAddr(addr : u16) InvalidAddrError!u16 {
 }
 
 fn checkTokenExpectedGot(expected : Token, got : Token) Error!void {
-    if (tokenEqual(expected, got)) {
+    if (expected.equals(got)) {
         return void{};
     } else {
         std.debug.print("Expected token {any} got token {any}", .{expected, got});
@@ -1081,105 +1277,6 @@ const LoweringError = error {
 };
 
 const MachineCodeFromInstrError = LoweringError||InvalidAddrError;
-pub fn machineCodeFromInstr(instr : Instr) MachineCodeFromInstrError!u16 {
-    switch(instr) {
-        Instr.comment => {return LoweringError.NoMachineCodeForComment;},
-        Instr.A_addr    => |addr| {
-            _ = try checkAddr(addr);
-            return addr;
-        },
-        Instr.A_name    => {return LoweringError.NoMachineCodeForA_name;},
-        Instr.C         => |comp| {return machineCodeFromC(comp);},
-        Instr.def_label => {return LoweringError.NoMachineCodeFordef_label;},
-    }
-}
-
-fn machineCodeFromA_addr(addr : u16) u16 {
-    return addr;
-}
-
-fn jumpBits(jmp : Jump) u16 {
-    const ret : u16 = switch(jmp) {
-        Jump.J00 => 0,
-        Jump.JGT => 1,
-        Jump.JEQ => 2,
-        Jump.JGE => 3,
-        Jump.JLT => 4,
-        Jump.JNE => 5,
-        Jump.JLE => 6,
-        Jump.JMP => 7,
-    };
-    return ret;
-}
-
-fn compBits(comp:Comp) u16 {
-    const c6 : u16 = 1 <<  6;
-    const c5 : u16 = 1 <<  7;
-    const c4 : u16 = 1 <<  8;
-    const c3 : u16 = 1 <<  9;
-    const c2 : u16 = 1 << 10;
-    const c1 : u16 = 1 << 11;
-    const  a : u16 = 1 << 12;
-    const  z : u16 = 0;
-    const ret : u16 = switch(comp) {
-        Comp.zero      => z | c1 |  z | c3 |  z | c5 |  z,
-        Comp.one       => z | c1 | c2 | c3 | c4 | c5 | c6,
-        Comp.neg_one   => z | c1 | c2 | c3 |  z | c5 |  z,
-        Comp.DplusA    => z |  z |  z |  z |  z | c5 |  z,
-        Comp.DminusA   => z |  z | c2 |  z |  z | c5 | c6,
-        Comp.AminusD   => z |  z |  z |  z | c5 | c5 | c6,
-        Comp.DandA     => z |  z |  z |  z |  z |  z |  z,
-        Comp.DorA      => z |  z | c2 |  z | c4 |  z | c6,
-        Comp.DplusM    => a |  z |  z |  z |  z | c5 |  z,
-        Comp.DminusM   => a |  z |  z |  z |  z |  z |  z,
-        Comp.MminusD   => a |  z |  z |  z | c4 | c5 | c6,
-        Comp.DandM     => a |  z |  z |  z |  z |  z |  z,
-        Comp.DorM      => a |  z | c2 |  z | c4 |  z | c6,
-        Comp.not => |reg| switch(reg) {
-            Register.A => z | c1 | c2 |  z |  z |  z | c6,
-            Register.D => z |  z |  z | c3 | c4 |  z | c6,
-            Register.M => a | c1 | c2 |  z |  z |  z | c6,
-        },
-        Comp.neg => |reg| switch(reg) {
-            Register.A => z | c1 | c2 |  z |  z | c5 | c6,
-            Register.D => z |  z |  z | c3 | c4 | c5 | c6,
-            Register.M => a | c1 | c2 |  z |  z | c5 | c6,
-        },
-        Comp.copy=> |reg| switch(reg) {
-            Register.A => z | c1 | c2 |  z |  z |  z |  z,
-            Register.D => z |  z |  z | c3 | c4 |  z |  z,
-            Register.M => a | c1 | c2 |  z |  z |  z |  z,
-        },
-        Comp.inc => |reg| switch(reg) {
-            Register.A => z | c1 | c2 |  z | c4 | c5 | c6,
-            Register.D => z |  z | c2 | c3 | c4 | c5 | c6,
-            Register.M => a | c1 | c2 |  z | c4 | c5 | c6,
-        },
-        Comp.dec => |reg| switch(reg) {
-            Register.A => z | c1 | c2 |  z |  z | c5 |  z,
-            Register.D => z |  z |  z | c3 | c4 | c5 |  z,
-            Register.M => a | c1 | c2 |  z |  z | c5 |  z,
-        },
-    };
-    return ret;
-}
-
-fn destBits(cinstr : CInstr) u16 {
-    var ret : u16 = 0;
-    const d3 : u16 = 1 <<  3;
-    const d2 : u16 = 1 <<  4;
-    const d1 : u16 = 1 <<  5;
-    if (cinstr.destM) {ret = ret | d3;}
-    if (cinstr.destD) {ret = ret | d2;}
-    if (cinstr.destA) {ret = ret | d1;}
-    return ret;
-}
-
-fn machineCodeFromC(cinstr : CInstr) u16 {
-
-    const base : u16 = (1 << 15) | (1 << 14) | (1<<13);
-    return base | compBits(cinstr.comp) | destBits(cinstr) | jumpBits(cinstr.jump);
-}
 
 pub fn printMachineInstr(writer : anytype, minstr : u16) anyerror!void {
     // `{[argument][specifier]:[fill][alignment][width].[precision]}`
@@ -1217,7 +1314,37 @@ fn assembleFileAbsolute(alloc : *Allocator,
     defer file.close();
     const writer = file.writer();
     for (instrs_lowered.items) |instr| {
-        var machinstr : u16 = machineCodeFromInstr(instr);
+        var machinstr : u16 = try instr.machineCode();
         printMachineInstr(writer, machinstr);
     }
+}
+
+fn testAsm2Hack(alloc : *Allocator, s : [] const u8, expectedMach : u16) !void {
+    const instr = try instrFromString(alloc,s);
+    const mach = try instr.machineCode();
+    try testing.expectEqual(expectedMach, mach);
+}
+test "ams2hack" {
+    const alloc = testing.allocator;
+    try testAsm2Hack(alloc , "@16"       , 0b0000000000010000);
+    try testAsm2Hack(alloc , "M=1;J00"   , 0b1110111111001000);
+    try testAsm2Hack(alloc , "@17"       , 0b0000000000010001);
+    try testAsm2Hack(alloc , "M=0;J00"   , 0b1110101010001000);
+    try testAsm2Hack(alloc , "@16"       , 0b0000000000010000);
+    try testAsm2Hack(alloc , "D=M;J00"   , 0b1111110000010000);
+    try testAsm2Hack(alloc , "@100"      , 0b0000000001100100);
+    try testAsm2Hack(alloc , "D=D-A;J00" , 0b1110010011010000);
+    try testAsm2Hack(alloc , "@18"       , 0b0000000000010010);
+    try testAsm2Hack(alloc , "D;JGT"     , 0b1110001100000001);
+    try testAsm2Hack(alloc , "@16"       , 0b0000000000010000);
+    try testAsm2Hack(alloc , "D=M;J00"   , 0b1111110000010000);
+    try testAsm2Hack(alloc , "@17"       , 0b0000000000010001);
+    try testAsm2Hack(alloc , "M=D+M;J00" , 0b1111000010001000);
+    try testAsm2Hack(alloc , "@16"       , 0b0000000000010000);
+    try testAsm2Hack(alloc , "M=M+1;J00" , 0b1111110111001000);
+    try testAsm2Hack(alloc , "@4"        , 0b0000000000000100);
+    try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
+    try testAsm2Hack(alloc , "@18"       , 0b0000000000010010);
+    try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
+
 }

@@ -23,10 +23,15 @@ pub fn main() anyerror!void {
     const stdout = std.io.getStdOut().writer();
     var linum : u64 = 0;
     for (instrs_lowered.items) |instr| {
-        var mach = try hasm.machineCodeFromInstr(instr);
+        var mach = try instr.machineCode();
         try stdout.print("{d: >5} ", .{linum});
         try hasm.printMachineInstr(stdout, mach);
         try stdout.print("   // {}\n", .{instr});
+        linum += 1;
+    }
+    for (instrs_lowered.items) |instr| {
+        var mach = try instr.machineCode();
+        try stdout.print("try testAsm2Hack(test_allocator, \"{}\", 0b{b:0>16};)\n", .{instr, mach});
         linum += 1;
     }
     defer {
