@@ -15,7 +15,7 @@ pub fn main() anyerror!void {
     const instrs = try hasm.parseFileAbsolute(allocator, path);
     defer {
         for (instrs.items) |instr| {
-            hasm.freeInstr(allocator, instr);
+            instr.free(allocator);
         }
         instrs.deinit();
     }
@@ -26,9 +26,7 @@ pub fn main() anyerror!void {
         var mach = try hasm.machineCodeFromInstr(instr);
         try stdout.print("{d: >5} ", .{linum});
         try hasm.printMachineInstr(stdout, mach);
-        try stdout.print("   //", .{});
-        try hasm.printInstr(stdout, instr);
-        try stdout.print("\n", .{});
+        try stdout.print("   // {}\n", .{instr});
         linum += 1;
     }
     defer {

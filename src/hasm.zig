@@ -352,7 +352,20 @@ test "comment" {
     try testing.expect(std.mem.eql(u8, res2.value.comment, "lala2"));
 }
 
-const Register = enum {A,D,M};
+const Register = enum {A,D,M,
+    pub fn format(reg: *const Register, comptime fmt: []const u8,
+        options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
+        const c : u8 = switch(reg.*) {
+            Register.A => 'A',
+            Register.D => 'D',
+            Register.M => 'M',
+        };
+        return writer.print("{c}", .{c});
+    }
+};
+
 const Jump = enum {
     J00,
     JGT,
@@ -362,20 +375,22 @@ const Jump = enum {
     JNE,
     JLE,
     JMP,
+    pub fn format(jmp : *const Jump,
+        fmt : []const u8, options : std.fmt.FormatOptions, writer : anytype) !void {
+        _ = options;
+        _ = fmt;
+        try switch(jmp.*) {
+            Jump.J00 => writer.print("J00", .{}),
+            Jump.JGT => writer.print("JGT", .{}),
+            Jump.JEQ => writer.print("JEQ", .{}),
+            Jump.JGE => writer.print("JGE", .{}),
+            Jump.JLT => writer.print("JLT", .{}),
+            Jump.JNE => writer.print("JNE", .{}),
+            Jump.JLE => writer.print("JLE", .{}),
+            Jump.JMP => writer.print("JMP", .{}),
+        };
+    }
 };
-
-fn printJump(writer : anytype, jmp : Jump) anyerror!void {
-    try switch(jmp) {
-        Jump.J00 => writer.print("J00", .{}),
-        Jump.JGT => writer.print("JGT", .{}),
-        Jump.JEQ => writer.print("JEQ", .{}),
-        Jump.JGE => writer.print("JGE", .{}),
-        Jump.JLT => writer.print("JLT", .{}),
-        Jump.JNE => writer.print("JNE", .{}),
-        Jump.JLE => writer.print("JLE", .{}),
-        Jump.JMP => writer.print("JMP", .{}),
-    };
-}
 
 const Comp = union(enum) {
     zero,
@@ -397,31 +412,31 @@ const Comp = union(enum) {
     MminusD,
     DandM,
     DorM,
-};
-
-fn printComp(writer : anytype, comp : Comp) anyerror!void {
-    switch(comp) {
-        Comp.zero    => try writer.print("0", .{}),
-        Comp.one     => try writer.print("1", .{}),
-        Comp.neg_one => try writer.print("-1", .{}),
-        Comp.not     => |reg| {try writer.print("!", .{}); try printRegister(writer, reg);},
-        Comp.neg     => |reg| {try writer.print("-", .{}); try printRegister(writer, reg);},
-        Comp.copy    => |reg| {try printRegister(writer, reg);},
-        Comp.inc     => |reg| {try printRegister(writer, reg); try writer.print("+1", .{});},
-        Comp.dec     => |reg| {try printRegister(writer, reg); try writer.print("-1", .{});},
-        Comp.DplusA  => try writer.print("D+A", .{}),
-        Comp.DminusA => try writer.print("D-A", .{}),
-        Comp.AminusD => try writer.print("A-D", .{}),
-        Comp.DandA   => try writer.print("D&A", .{}),
-        Comp.DorA    => try writer.print("D|A", .{}),
-        Comp.DplusM  => try writer.print("D+M", .{}),
-        Comp.DminusM => try writer.print("D-M", .{}),
-        Comp.MminusD => try writer.print("M-D", .{}),
-        Comp.DandM   => try writer.print("D&M", .{}),
-        Comp.DorM    => try writer.print("D|M", .{}),
+    pub fn format(comp : *const Comp, fmt : []const u8, options : std.fmt.FormatOptions, writer : anytype) !void {
+        _ = options;
+        _ = fmt;
+        switch(comp.*) {
+            Comp.zero    => try writer.print("0", .{}),
+            Comp.one     => try writer.print("1", .{}),
+            Comp.neg_one => try writer.print("-1", .{}),
+            Comp.not     => |reg| try writer.print("!{}", .{reg}),
+            Comp.neg     => |reg| try writer.print("-{}", .{reg}),
+            Comp.copy    => |reg| try writer.print("{}", .{reg}),
+            Comp.inc     => |reg| try writer.print("{}+1", .{reg}),
+            Comp.dec     => |reg| try writer.print("{}-1", .{reg}),
+            Comp.DplusA  => try writer.print("D+A", .{}),
+            Comp.DminusA => try writer.print("D-A", .{}),
+            Comp.AminusD => try writer.print("A-D", .{}),
+            Comp.DandA   => try writer.print("D&A", .{}),
+            Comp.DorA    => try writer.print("D|A", .{}),
+            Comp.DplusM  => try writer.print("D+M", .{}),
+            Comp.DminusM => try writer.print("D-M", .{}),
+            Comp.MminusD => try writer.print("M-D", .{}),
+            Comp.DandM   => try writer.print("D&M", .{}),
+            Comp.DorM    => try writer.print("D|M", .{}),
+        }
     }
-
-}
+};
 
 fn binaryOp(reg1: Register, op : Token, reg2 : Register) anyerror!Comp {
     const plus  = Token.plus;
@@ -473,6 +488,28 @@ pub const Token = union(enum) {
     zero      : void,
     one       : void,
     not       : void,
+    pub fn format(tok: *const Token, comptime fmt: []const u8,
+        options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
+        try switch(tok.*) {
+            Token.comment   => |com | writer.print("//{s}", .{com} ),
+            Token.A_addr    => |addr| writer.print("@{d}", .{addr} ),
+            Token.A_name    => |name| writer.print("@{s}", .{name} ),
+            Token.def_label => |name| writer.print("({s})", .{name}),
+            Token.semicolon => writer.print(";", .{}),
+            Token.eq        => writer.print("=", .{}),
+            Token.plus      => writer.print("+", .{}),
+            Token.minus     => writer.print("-", .{}),
+            Token.and_      => writer.print("&", .{}),
+            Token.or_       => writer.print("|", .{}),
+            Token.not       => writer.print("!", .{}),
+            Token.zero      => writer.print("0", .{}),
+            Token.one       => writer.print("1", .{}),
+            Token.register  => |reg| writer.print("{}", .{reg}),
+            Token.jump      => |jmp| writer.print("{}", .{jmp}),
+        };
+    }
 };
 
 pub fn tokenEqual(t1 : Token, t2 : Token) bool {
@@ -557,35 +594,6 @@ pub fn freeTokens(alloc: *Allocator, toks : ArrayList(Token)) void {
     toks.deinit();
 }
 
-fn printRegister(writer : anytype, register : Register) anyerror!void {
-    const c : u8 = switch(register) {
-        Register.A => 'A',
-        Register.D => 'D',
-        Register.M => 'M',
-    };
-    return writer.print("{c}", .{c});
-}
-
-pub fn printToken(writer : anytype, tok : Token) anyerror!void {
-    try switch(tok) {
-        Token.comment   => |com| writer.print("//{s}", .{com}),
-        Token.A_addr    => |addr| writer.print("@{d}", .{addr}),
-        Token.A_name    => |name| writer.print("@{s}", .{name}),
-        Token.def_label => |name| writer.print("({s})", .{name}),
-        Token.register  => |register| printRegister(writer, register),
-        Token.semicolon => writer.print(";", .{}),
-        Token.jump      => |jmp| printJump(writer, jmp),
-        Token.eq        => writer.print("=", .{}),
-        Token.plus      => writer.print("+", .{}),
-        Token.minus     => writer.print("-", .{}),
-        Token.and_      => writer.print("&", .{}),
-        Token.or_       => writer.print("|", .{}),
-        Token.not       => writer.print("!", .{}),
-        Token.zero      => writer.print("0", .{}),
-        Token.one       => writer.print("1", .{}),
-    };
-}
-
 const CInstr = struct {destA : bool, destD :bool, destM :bool, comp : Comp, jump : Jump};
 
 pub const Instr = union(enum) {
@@ -594,37 +602,38 @@ pub const Instr = union(enum) {
     A_name    : []const u8,
     C         : CInstr,
     def_label : []const u8,
+
+    pub fn format(instr : *const Instr, fmt : []const u8, options : std.fmt.FormatOptions, writer : anytype) !void {
+        _ = options;
+        _ = fmt;
+        switch(instr.*) {
+            Instr.comment   => |com | {try writer.print("//{s}", .{com}) ;},
+            Instr.A_addr    => |addr| {try writer.print("@{d}", .{addr}) ;},
+            Instr.A_name    => |name| {try writer.print("@{s}", .{name}) ;},
+            Instr.def_label => |name| {try writer.print("({s})", .{name});},
+            Instr.C         => |spec| {
+                if (spec.destA) {try writer.print("A", .{});}
+                if (spec.destD) {try writer.print("D", .{});}
+                if (spec.destM) {try writer.print("M", .{});}
+                if (spec.destA or spec.destD or spec.destM) {
+                    try writer.print("=", .{});
+                }
+                try writer.print("{};{}", .{spec.comp, spec.jump});
+            },
+        }
+    }
+
+    pub fn free(self : Instr, alloc : *Allocator) void {
+        switch(self) {
+            Instr.comment   => |s| {alloc.free(s);},
+            Instr.A_name    => |s| {alloc.free(s);},
+            Instr.def_label => |s| {alloc.free(s);},
+            Instr.C         => {},
+            Instr.A_addr    => {},
+        }
+    }
 };
 
-pub fn freeInstr(alloc : *Allocator, instr : Instr) void {
-    switch(instr) {
-        Instr.comment   => |s| {alloc.free(s);},
-        Instr.A_name    => |s| {alloc.free(s);},
-        Instr.def_label => |s| {alloc.free(s);},
-        Instr.C         => {},
-        Instr.A_addr    => {},
-    }
-}
-
-pub fn printInstr(writer : anytype, instr : Instr) anyerror!void {
-    switch(instr) {
-        Instr.comment   => |com | {try writer.print("//{s}", .{com})  ;},
-        Instr.A_addr    => |addr| {try writer.print("@{d}", .{addr})  ;},
-        Instr.A_name    => |name| {try writer.print("@{s}", .{name})  ;},
-        Instr.def_label => |name| {try writer.print("({s})", .{name});},
-        Instr.C         => |spec| {
-            if (spec.destA) {try writer.print("A", .{});}
-            if (spec.destD) {try writer.print("D", .{});}
-            if (spec.destM) {try writer.print("M", .{});}
-            if (spec.destA or spec.destD or spec.destM) {
-                try writer.print("=", .{});
-            }
-            try printComp(writer, spec.comp);
-            try writer.print(";", .{});
-            try printJump(writer, spec.jump);
-        },
-    }
-}
 const SymbolTable = std.HashMap([]const u8, u16, std.hash_map.StringContext, 80);
 // caller must free the symbol table
 fn buildSymbolTable(
@@ -765,8 +774,7 @@ pub fn parseFileAbsolute(alloc: *Allocator, path : []const u8) anyerror!ArrayLis
             std.debug.print("Error parsing line {d}:\n {s}\n", .{linenum, line});
             std.debug.print("Tokens:\n", .{});
             for (stream.items) |tok| {
-                try printToken(stdout,tok);
-                try stdout.print(" ", .{});
+                try stdout.print("{} ", .{tok});
             }
             std.debug.print("\n", .{});
             return err;
@@ -1197,7 +1205,7 @@ fn assembleFileAbsolute(alloc : *Allocator,
     const instrs = try parseFileAbsolute(alloc, path_asm);
     defer {
         for (instrs.items) |instr| {
-            freeInstr(alloc, instr);
+            instr.free(alloc);
         }
         instrs.deinit();
     }
