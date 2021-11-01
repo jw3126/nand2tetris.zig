@@ -464,11 +464,11 @@ const Comp = union(enum) {
             Comp.neg_one   => z | c1 | c2 | c3 |  z | c5 |  z,
             Comp.DplusA    => z |  z |  z |  z |  z | c5 |  z,
             Comp.DminusA   => z |  z | c2 |  z |  z | c5 | c6,
-            Comp.AminusD   => z |  z |  z |  z | c5 | c5 | c6,
+            Comp.AminusD   => z |  z |  z |  z | c4 | c5 | c6,
             Comp.DandA     => z |  z |  z |  z |  z |  z |  z,
             Comp.DorA      => z |  z | c2 |  z | c4 |  z | c6,
             Comp.DplusM    => a |  z |  z |  z |  z | c5 |  z,
-            Comp.DminusM   => a |  z |  z |  z |  z |  z |  z,
+            Comp.DminusM   => a |  z | c2 |  z |  z | c5 | c6,
             Comp.MminusD   => a |  z |  z |  z | c4 | c5 | c6,
             Comp.DandM     => a |  z |  z |  z |  z |  z |  z,
             Comp.DorM      => a |  z | c2 |  z | c4 |  z | c6,
@@ -873,9 +873,9 @@ fn buildSymbolTable(
                     var res_symbol = try symbol_table.getOrPut(name);
                     if (!res_symbol.found_existing) {
                         res_symbol.value_ptr.* = memloc;
+                        memloc += 1;
                     }
                 };
-                memloc += 1;
             },
             else => {},
         }
@@ -1347,4 +1347,66 @@ test "ams2hack" {
     try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
     try testAsm2Hack(alloc , "@18"       , 0b0000000000010010);
     try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
+    try testAsm2Hack(alloc , "D=D-M"     , 0b1111010011010000);
+}
+
+fn test_assembler(alloc : *Allocator,
+    path_input : []const u8,
+    path_output : []const u8,
+    path_expected : []const u8
+    ) !void {
+    try assembleFileAbsolute(alloc, path_input, path_output);
+    const max_file_size : u64 = 100_000_000;
+    const file_output = try std.fs.openFileAbsolute(path_output, .{.read=true});
+    defer file_output.close();
+    const reader_output = std.io.bufferedReader(file_output.reader()).reader();
+    const s_output : []const u8 = try reader_output.readAllAlloc(alloc, max_file_size);
+    defer alloc.free(s_output);
+
+    const file_expected = try std.fs.openFileAbsolute(path_expected, .{.read=true});
+    defer file_expected.close();
+    const reader_expected = std.io.bufferedReader(file_expected.reader()).reader();
+    const s_expected = try reader_expected.readAllAlloc(alloc, max_file_size);
+    defer alloc.free(s_expected);
+    try std.testing.expect(std.mem.eql(u8, s_output, s_expected));
+}
+
+test "asm2hack" {
+    const alloc = testing.allocator;
+    const dir = "/home/jan/projects/LearnZig/nand2tetris/testdata/";
+    try test_assembler(alloc,
+         dir ++ "Add.asm",
+        "/tmp/Add.hack",
+         dir ++ "Add.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "MaxL.asm",
+        "/tmp/MaxL.hack",
+         dir ++ "MaxL.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "Max.asm",
+        "/tmp/Max.hack",
+         dir ++ "Max.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "RectL.asm",
+        "/tmp/RectL.hack",
+         dir ++ "RectL.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "Rect.asm",
+        "/tmp/Rect.hack",
+         dir ++ "Rect.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "PongL.asm",
+        "/tmp/PongL.hack",
+         dir ++ "PongL.hack",
+    );
+    try test_assembler(alloc,
+         dir ++ "Pong.asm",
+        "/tmp/Pong.hack",
+         dir ++ "Pong.hack",
+    );
 }
