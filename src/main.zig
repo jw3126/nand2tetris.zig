@@ -11,30 +11,32 @@ pub fn main() anyerror!void {
     const allocator : *std.mem.Allocator = &gpa.allocator;
     // const path = "/home/jan/nand2tetris/examples/add.asm";
     // const path  ="/home/jan/nand2tetris/projects/06/pong/Pong.asm";
-    const path = "/home/jan/projects/LearnZig/nand2tetris/testdata/Prog.asm";
-    const instrs = try hasm.parseFileAbsolute(allocator, path);
-    defer {
-        for (instrs.items) |instr| {
-            instr.free(allocator);
-        }
-        instrs.deinit();
-    }
-    const instrs_lowered = try hasm.resolveSymbols(allocator, instrs);
-    const stdout = std.io.getStdOut().writer();
-    var linum : u64 = 0;
-    for (instrs_lowered.items) |instr| {
-        var mach = try instr.machineCode();
-        try stdout.print("{d: >5} ", .{linum});
-        try hasm.printMachineInstr(stdout, mach);
-        try stdout.print("   // {}\n", .{instr});
-        linum += 1;
-    }
-    for (instrs_lowered.items) |instr| {
-        var mach = try instr.machineCode();
-        try stdout.print("try testAsm2Hack(test_allocator, \"{}\", 0b{b:0>16};)\n", .{instr, mach});
-        linum += 1;
-    }
-    defer {
-        instrs_lowered.deinit();
-    }
+    const path_asm = "/home/jan/projects/LearnZig/nand2tetris/testdata/Prog.asm";
+    const path_out = "/tmp/Prog.hack";
+    try hasm.assembleFileAbsolute(allocator, path_asm, path_out);
+    // const instrs = try hasm.parseFileAbsolute(allocator, path);
+    // defer {
+    //     for (instrs.items) |instr| {
+    //         instr.free(allocator);
+    //     }
+    //     instrs.deinit();
+    // }
+    // const instrs_lowered = try hasm.resolveSymbols(allocator, instrs);
+    // const stdout = std.io.getStdOut().writer();
+    // var linum : u64 = 0;
+    // for (instrs_lowered.items) |instr| {
+    //     var mach = try instr.machineCode();
+    //     try stdout.print("{d: >5} ", .{linum});
+    //     try hasm.printMachineInstr(stdout, mach);
+    //     try stdout.print("   // {}\n", .{instr});
+    //     linum += 1;
+    // }
+    // for (instrs_lowered.items) |instr| {
+    //     var mach = try instr.machineCode();
+    //     try stdout.print("try testAsm2Hack(test_allocator, \"{}\", 0b{b:0>16};)\n", .{instr, mach});
+    //     linum += 1;
+    // }
+    // defer {
+    //     instrs_lowered.deinit();
+    // }
 }

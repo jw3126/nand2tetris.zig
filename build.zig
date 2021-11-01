@@ -11,25 +11,48 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("nand2tetris", "src/main.zig");
-    exe.addPackagePath("mecha", "deps/mecha/mecha.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.install();
+    // main
+    {
+        const exe = b.addExecutable("nand2tetris", "src/main.zig");
+        exe.addPackagePath("mecha", "deps/mecha/mecha.zig");
+        exe.setTarget(target);
+        exe.setBuildMode(mode);
+        exe.install();
 
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        const run_cmd = exe.run();
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
+    }
+    {
+        // assembler
+        const exe = b.addExecutable("nand2tetris", "src/assembler.zig");
+        exe.addPackagePath("mecha", "deps/mecha/mecha.zig");
+        exe.setTarget(target);
+        exe.setBuildMode(mode);
+        exe.install();
+
+        const run_cmd = exe.run();
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("assembler", "Run the assembler");
+        run_step.dependOn(&run_cmd.step);
     }
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
-    const test_step = b.step("test", "Run the tests");
-    const tests = b.addTest("src/hasm.zig");
-    tests.addPackagePath("mecha", "deps/mecha/mecha.zig");
-    tests.setTarget(target);
-    tests.setBuildMode(mode);
-    test_step.dependOn(&tests.step);
+    // test
+    {
+        const test_step = b.step("test", "Run the tests");
+        const tests = b.addTest("src/hasm.zig");
+        tests.addPackagePath("mecha", "deps/mecha/mecha.zig");
+        tests.setTarget(target);
+        tests.setBuildMode(mode);
+        test_step.dependOn(&tests.step);
+    }
 }

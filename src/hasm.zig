@@ -1279,23 +1279,23 @@ const LoweringError = error {
 const MachineCodeFromInstrError = LoweringError||InvalidAddrError;
 
 pub fn printMachineInstr(writer : anytype, minstr : u16) anyerror!void {
-    // `{[argument][specifier]:[fill][alignment][width].[precision]}`
-    // try writer.print("{b:0>16}", .{minstr});
-    const one : u16 = 1;
-    var i : u4 = 15;
-    while (true) {
-        var mask : u16 = one << i;
-        var digit = @bitCast(u1, (mask == mask & minstr));
-        try writer.print("{d}", .{digit});
-        if (@mod(i, 4) == 0) {
-            try writer.print(" ", .{});
-        }
-        if (i == 0) break;
-        i = i - 1;
-    }
+    //{[argument][specifier]:[fill][alignment][width].[precision]}`
+    try writer.print("{b:0>16}", .{minstr});
+    //const one : u16 = 1;
+    //var i : u4 = 15;
+    //while (true) {
+    //    var mask : u16 = one << i;
+    //    var digit = @bitCast(u1, (mask == mask & minstr));
+    //    try writer.print("{d}", .{digit});
+    //    if (@mod(i, 4) == 0) {
+    //        try writer.print(" ", .{});
+    //    }
+    //    if (i == 0) break;
+    //    i = i - 1;
+    //}
 }
 
-fn assembleFileAbsolute(alloc : *Allocator,
+pub fn assembleFileAbsolute(alloc : *Allocator,
     path_asm : [] const u8,
     path_hack : [] const u8,
     ) anyerror!void {
@@ -1310,12 +1310,13 @@ fn assembleFileAbsolute(alloc : *Allocator,
     defer {
         instrs_lowered.deinit();
     }
-    const file = try std.fs.openFileAbsolute(path_hack, .{.write=true});
+    const file = try std.fs.createFileAbsolute(path_hack, .{});
     defer file.close();
     const writer = file.writer();
     for (instrs_lowered.items) |instr| {
         var machinstr : u16 = try instr.machineCode();
-        printMachineInstr(writer, machinstr);
+        try printMachineInstr(writer, machinstr);
+        try writer.print("\n", .{});
     }
 }
 
@@ -1346,5 +1347,4 @@ test "ams2hack" {
     try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
     try testAsm2Hack(alloc , "@18"       , 0b0000000000010010);
     try testAsm2Hack(alloc , "0;JMP"     , 0b1110101010000111);
-
 }
