@@ -1350,20 +1350,26 @@ test "ams2hack" {
     try testAsm2Hack(alloc , "D=D-M"     , 0b1111010011010000);
 }
 
-fn test_assembler(alloc : *Allocator,
+fn testAssembler(alloc : *Allocator,
     path_input : []const u8,
     path_output : []const u8,
     path_expected : []const u8
     ) !void {
-    try assembleFileAbsolute(alloc, path_input, path_output);
-    const max_file_size : u64 = 100_000_000;
-    const file_output = try std.fs.openFileAbsolute(path_output, .{.read=true});
+    const realpath_input = try testDataPath(alloc, path_input);
+    defer alloc.free(realpath_input);
+    const realpath_output = try testDataPath(alloc, path_output);
+    defer alloc.free(realpath_output);
+    const realpath_expected = try testDataPath(alloc, path_expected);
+    defer alloc.free(realpath_expected);
+    try assembleFileAbsolute(alloc, realpath_input, realpath_output);
+    const max_file_size : u64 = 1_000_000;
+    const file_output = try std.fs.openFileAbsolute(realpath_output, .{.read=true});
     defer file_output.close();
     const reader_output = std.io.bufferedReader(file_output.reader()).reader();
     const s_output : []const u8 = try reader_output.readAllAlloc(alloc, max_file_size);
     defer alloc.free(s_output);
 
-    const file_expected = try std.fs.openFileAbsolute(path_expected, .{.read=true});
+    const file_expected = try std.fs.openFileAbsolute(realpath_expected, .{.read=true});
     defer file_expected.close();
     const reader_expected = std.io.bufferedReader(file_expected.reader()).reader();
     const s_expected = try reader_expected.readAllAlloc(alloc, max_file_size);
@@ -1371,40 +1377,47 @@ fn test_assembler(alloc : *Allocator,
     try std.testing.expect(std.mem.eql(u8, s_output, s_expected));
 }
 
-test "asm2hack" {
+pub fn testDataPath(alloc : *Allocator, rpath : []const u8) ![] const u8 {
+    const dir = std.fs.cwd();
+    const ret = try dir.realpathAlloc(alloc, rpath);
+    return ret;
+}
+
+
+test "asm2hack end2end" {
     const alloc = testing.allocator;
-    const dir = "/home/jan/projects/LearnZig/nand2tetris/testdata/";
-    try test_assembler(alloc,
+    const dir = "testdata/";
+    try testAssembler(alloc,
          dir ++ "Add.asm",
         "/tmp/Add.hack",
          dir ++ "Add.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "MaxL.asm",
         "/tmp/MaxL.hack",
          dir ++ "MaxL.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "Max.asm",
         "/tmp/Max.hack",
          dir ++ "Max.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "RectL.asm",
         "/tmp/RectL.hack",
          dir ++ "RectL.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "Rect.asm",
         "/tmp/Rect.hack",
          dir ++ "Rect.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "PongL.asm",
         "/tmp/PongL.hack",
          dir ++ "PongL.hack",
     );
-    try test_assembler(alloc,
+    try testAssembler(alloc,
          dir ++ "Pong.asm",
         "/tmp/Pong.hack",
          dir ++ "Pong.hack",
