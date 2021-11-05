@@ -1357,8 +1357,9 @@ fn testAssembler(alloc : *Allocator,
     ) !void {
     const realpath_input = try testDataPath(alloc, path_input);
     defer alloc.free(realpath_input);
-    const realpath_output = try testDataPath(alloc, path_output);
-    defer alloc.free(realpath_output);
+    const realpath_output = path_output;
+    //try testDataPath(alloc, path_output);
+    //defer alloc.free(realpath_output);
     const realpath_expected = try testDataPath(alloc, path_expected);
     defer alloc.free(realpath_expected);
     try assembleFileAbsolute(alloc, realpath_input, realpath_output);
@@ -1379,13 +1380,18 @@ fn testAssembler(alloc : *Allocator,
 
 pub fn testDataPath(alloc : *Allocator, rpath : []const u8) ![] const u8 {
     const dir = std.fs.cwd();
-    const ret = try dir.realpathAlloc(alloc, rpath);
+    const ret = dir.realpathAlloc(alloc, rpath) catch |err| {
+        std.debug.print("Problem creating realpath for rpath = {s}\n dir = {}\n", .{rpath, dir});
+        return err;
+    };
     return ret;
 }
 
 
 test "asm2hack end2end" {
     const alloc = testing.allocator;
+    //const dir = "testdata/";
+    //const dir = "/home/jan/projects/LearnZig/nand2tetris/testdata";
     const dir = "testdata/";
     try testAssembler(alloc,
          dir ++ "Add.asm",
