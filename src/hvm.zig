@@ -55,22 +55,60 @@ test "makeParser" {
         try testing.expectEqual(res.value.integer, 123);
      }
 }
+test "token" {
+     const test_allocator = testing.allocator;
+     {
+        var res = try Parsers.token(test_allocator, "push");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value, Token{.push=.{}});
+     }
+     {
+        var res = try Parsers.token(test_allocator, "push pointer 0");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value, Token{.push=.{}});
+     }
+     {
+        var res = try Parsers.token(test_allocator, "function foo 0");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value, Token{.function=.{}});
+     }
+     {
+        var res = try Parsers.token(test_allocator, "argument 0");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value, Token{.segment=Segment.argument});
+     }
+     {
+        var res = try Parsers.token(test_allocator, "// argument 0\n");
+        defer res.value.deinit(test_allocator);
+        try testing.expect(std.mem.eql(u8, res.value.comment, " argument 0"));
+     }
+     {
+        var res = try Parsers.token(test_allocator, "foo123 ");
+        defer res.value.deinit(test_allocator);
+        try testing.expect(std.mem.eql(u8, res.value.identifier, "foo123"));
+     }
+     {
+        var res = try Parsers.token(test_allocator, "123 ");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value.integer, 123);
+     }
+}
 
 const Parsers = struct {
 
-    pub fn identifier(alloc : *Allocator, str : []const u8) !m.Result(Token) {
+    pub fn identifier(alloc : *Allocator, str : []const u8) m.Error!m.Result(Token) {
         const res_str = try @import("hasm.zig").identifier(alloc, str);
         const tok = Token{.identifier=res_str.value};
         return m.Result(Token){.value=tok, .rest=res_str.rest};
     }
 
-    pub fn comment(alloc : *Allocator, str : [] const u8) !m.Result(Token) {
+    pub fn comment(alloc : *Allocator, str : [] const u8) m.Error!m.Result(Token) {
         const res_str = try @import("hasm.zig").comment_str(alloc, str);
         const tok = Token{.comment=res_str.value};
         return m.Result(Token){.value=tok, .rest=res_str.rest};
     }
 
-    pub fn integer(alloc : *Allocator, str : [] const u8) !m.Result(Token) {
+    pub fn integer(alloc : *Allocator, str : [] const u8) m.Error!m.Result(Token) {
         const int = m.int(u16, .{.base=10, .parse_sign=false});
         const res_str = try int(alloc, str);
         const tok = Token{.integer=res_str.value};
@@ -103,7 +141,39 @@ const Parsers = struct {
     const pointer  = makeParser("pointer"  , Token{.segment = Segment.pointer});
     const temp     = makeParser("temp"     , Token{.segment = Segment.temp});
 
+    const spaces_or_tabs = @import("hasm.zig").spaces_or_tabs;
 
+    const token : m.Parser(Token) = m.combine(.{spaces_or_tabs,
+        m.oneOf(.{
+            push      ,
+            pop       ,
+            add       ,
+            sub       ,
+            neg       ,
+            not       ,
+            and_      ,
+            or_       ,
+            lt        ,
+            eq        ,
+            gt        ,
+            goto      ,
+            function  ,
+            return_   ,
+            call      ,
+            argument  ,
+            local     ,
+            static    ,
+            constant  ,
+            this      ,
+            that      ,
+            pointer   ,
+            temp      ,
+            comment   ,
+            integer   ,
+            identifier,
+        }),
+        spaces_or_tabs,
+    });
 };
 
 const Segment = enum {

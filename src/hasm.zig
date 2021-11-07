@@ -4,7 +4,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const spaces_or_tabs = m.discard(
+pub const spaces_or_tabs = m.discard(
     m.many(m.ascii.space, .{.collect=false})
 );
 
