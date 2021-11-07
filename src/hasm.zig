@@ -4,8 +4,6 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
 const spaces_or_tabs = m.discard(
     m.many(m.ascii.space, .{.collect=false})
 );
@@ -17,11 +15,11 @@ fn mkComment(content : [] const u8) Token {
 const start_comment = m.string("//");
 const stop_comment = m.oneOf(.{m.ascii.char('\n'), m.eos});
 const body_comment = m.many(m.ascii.not(stop_comment), .{.collect=true});
+const comment_str = m.combine(
+    .{start_comment, body_comment, stop_comment}
+);
 const comment : m.Parser(Token) = m.map(Token,
-    mkComment,
-    m.combine(
-        .{start_comment, body_comment, stop_comment}
-    ),
+    mkComment, comment_str,
 );
 const integer = m.int(u16, .{.base=10, .parse_sign=false});
 

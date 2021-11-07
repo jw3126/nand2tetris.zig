@@ -9,7 +9,7 @@ pub fn build(b: *std.build.Builder) void {
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const mode : std.builtin.Mode =  b.standardReleaseOptions();
 
     // main
     {
@@ -49,10 +49,24 @@ pub fn build(b: *std.build.Builder) void {
     // test
     {
         const test_step = b.step("test", "Run the tests");
-        const tests = b.addTest("src/hasm.zig");
-        tests.addPackagePath("mecha", "deps/mecha/mecha.zig");
-        tests.setTarget(target);
-        tests.setBuildMode(mode);
-        test_step.dependOn(&tests.step);
+        const path1 : []const u8 = "src/hasm.zig";
+        const path2 : []const u8 = "src/hvm.zig";
+        addTests(b, test_step, path1, target, mode);
+        addTests(b, test_step, path2, target, mode);
     }
 }
+
+pub fn addTests(b: *std.build.Builder,
+    test_step : *std.build.Step,
+    path : []const u8,
+    target : std.build.Target,
+    mode : std.builtin.Mode,
+) void {
+    const tests = b.addTest(path);
+    tests.addPackagePath("mecha", "deps/mecha/mecha.zig");
+    tests.setTarget(target);
+    tests.setBuildMode(mode);
+    test_step.dependOn(&tests.step);
+}
+
+
