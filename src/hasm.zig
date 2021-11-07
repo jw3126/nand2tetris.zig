@@ -15,7 +15,7 @@ fn mkComment(content : [] const u8) Token {
 const start_comment = m.string("//");
 const stop_comment = m.oneOf(.{m.ascii.char('\n'), m.eos});
 const body_comment = m.many(m.ascii.not(stop_comment), .{.collect=true});
-const comment_str = m.combine(
+pub const comment_str = m.combine(
     .{start_comment, body_comment, stop_comment}
 );
 const comment : m.Parser(Token) = m.map(Token,
@@ -65,7 +65,7 @@ const identifier_unsafe : m.Parser([]const u8) = m.asStr(
     )
 );
 
-fn identifier(alloc: *std.mem.Allocator, str : []const u8) m.Error!m.Result([]const u8) {
+pub fn identifier(alloc: *std.mem.Allocator, str : []const u8) m.Error!m.Result([]const u8) {
     var res_inner = try identifier_unsafe(alloc, str);
     const mem = try alloc.alloc(u8, res_inner.value.len);
     var i : u64 = 0;

@@ -36,13 +36,27 @@ test "makeParser" {
      }
      {
         var res = try Parsers.argument(test_allocator, "argument 0");
+        defer res.value.deinit(test_allocator);
         try testing.expectEqual(res.value, Token{.segment=Segment.argument});
+     }
+     {
+        var res = try Parsers.comment(test_allocator, "// argument 0\n");
+        defer res.value.deinit(test_allocator);
+        try testing.expect(std.mem.eql(u8, res.value.comment, " argument 0"));
+     }
+     {
+        var res = try Parsers.identifier(test_allocator, "foo123 ");
+        defer res.value.deinit(test_allocator);
+        try testing.expect(std.mem.eql(u8, res.value.identifier, "foo123"));
+     }
+     {
+        var res = try Parsers.integer(test_allocator, "123 ");
+        defer res.value.deinit(test_allocator);
+        try testing.expectEqual(res.value.integer, 123);
      }
 }
 
 const Parsers = struct {
-    //const identifier = @import("hasm.zig").identifier;
-    const integer = @import("hasm.zig").integer;
 
     pub fn identifier(alloc : *Allocator, str : []const u8) !m.Result(Token) {
         const res_str = try @import("hasm.zig").identifier(alloc, str);
@@ -53,6 +67,13 @@ const Parsers = struct {
     pub fn comment(alloc : *Allocator, str : [] const u8) !m.Result(Token) {
         const res_str = try @import("hasm.zig").comment_str(alloc, str);
         const tok = Token{.comment=res_str.value};
+        return m.Result(Token){.value=tok, .rest=res_str.rest};
+    }
+
+    pub fn integer(alloc : *Allocator, str : [] const u8) !m.Result(Token) {
+        const int = m.int(u16, .{.base=10, .parse_sign=false});
+        const res_str = try int(alloc, str);
+        const tok = Token{.integer=res_str.value};
         return m.Result(Token){.value=tok, .rest=res_str.rest};
     }
 
@@ -115,7 +136,15 @@ const Token = union(enum) {
     segment : Segment,
     comment : [] const u8,
     identifier : [] const u8,
-    int : u16,
+    integer : u16,
+
+    pub fn deinit(tok : Token, alloc : *Allocator) void {
+        switch(tok) {
+            Token.comment => |s| alloc.free(s),
+            Token.identifier => |s| alloc.free(s),
+            else => {},
+        }
+    }
 };
 
 // push constant 10
