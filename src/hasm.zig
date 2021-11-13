@@ -325,7 +325,6 @@ pub fn tokenizeFileAbsolute(alloc: *Allocator, path : [] const u8) anyerror!Arra
     return ret;
 }
 
-
 fn expectError(res : anytype, err_expected : anyerror) anyerror!void {
     if (res) |value| {_=value;unreachable;} else |err| {
         try std.testing.expect(err == err_expected);
@@ -1390,7 +1389,7 @@ test "asm2hack end2end" {
     const alloc = testing.allocator;
     //const dir = "testdata/";
     //const dir = "/home/jan/projects/LearnZig/nand2tetris/testdata";
-    const dir = "testdata/";
+    const dir = "testdata/assembler/";
     try testAssembler(alloc,
          dir ++ "Add.asm",
         "/tmp/Add.hack",
