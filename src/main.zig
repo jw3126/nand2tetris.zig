@@ -8,7 +8,7 @@ pub fn main() anyerror!void {
         if (leaked) std.testing.expect(false) catch @panic("Memory problem");
     }
 
-    const allocator : *std.mem.Allocator = &gpa.allocator;
+    const allocator: std.mem.Allocator = gpa.allocator();
     // const path = "/home/jan/nand2tetris/examples/add.asm";
     // const path  ="/home/jan/nand2tetris/projects/06/pong/Pong.asm";
     const path_asm = "/home/jan/projects/LearnZig/nand2tetris/testdata/Prog.asm";
