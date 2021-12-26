@@ -65,7 +65,7 @@ test "char_identifier" {
 
 const identifier_unsafe: m.Parser([]const u8) = m.asStr(m.combine(.{ char_alpha, m.many(char_identifier, .{ .collect = false }) }));
 
-pub fn identifier(alloc: *std.mem.Allocator, str: []const u8) m.Error!m.Result([]const u8) {
+pub fn identifier(alloc: Allocator, str: []const u8) m.Error!m.Result([]const u8) {
     var res_inner = try identifier_unsafe(alloc, str);
     const mem = try alloc.alloc(u8, res_inner.value.len);
     var i: u64 = 0;
@@ -164,7 +164,7 @@ test "tokens" {
     defer test_allocator.free(res1.value);
 }
 
-fn char_token(_: *std.mem.Allocator, str: []const u8) m.Error!m.Result(Token) {
+fn char_token(_: Allocator, str: []const u8) m.Error!m.Result(Token) {
     if (str.len == 0) {
         return m.Error.ParserFailed;
     } else {
@@ -190,7 +190,7 @@ fn char_token(_: *std.mem.Allocator, str: []const u8) m.Error!m.Result(Token) {
     }
 }
 
-fn jump(_: *std.mem.Allocator, str: []const u8) m.Error!m.Result(Token) {
+fn jump(_: Allocator, str: []const u8) m.Error!m.Result(Token) {
     if (std.mem.startsWith(u8, str, "J00")) {
         const tok: Token = Token{ .jump = Jump.J00 };
         return m.Result(Token){ .value = tok, .rest = str[3..] };
@@ -577,7 +577,7 @@ pub const Token = union(enum) {
             Token.jump => |jmp| writer.print("{}", .{jmp}),
         };
     }
-    pub fn free(tok: Token, alloc: *std.mem.Allocator) void {
+    pub fn free(tok: Token, alloc: Allocator) void {
         switch (tok) {
             Token.comment => |s| alloc.free(s),
             Token.A_name => |s| alloc.free(s),
